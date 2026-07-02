@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useSelectInstances } from "@/components/fc";
 import CardPanel from "@/components/CardPanel.vue";
 import Loading from "@/components/Loading.vue";
 import { router } from "@/config/router";
@@ -10,6 +11,8 @@ import { useAppToolsStore } from "@/stores/useAppToolsStore";
 import { filterEmptyFields } from "@/tools/object";
 import { reportErrorMsg } from "@/tools/validator";
 import type { QuickStartPackages, QuickStartTemplate } from "@/types";
+import { defaultQuickStartPackages } from "@/types/const";
+import type { UserInstance } from "@/types/user";
 import {
   CopyOutlined,
   DatabaseOutlined,
@@ -138,6 +141,35 @@ const editorRef = ref<InstanceType<typeof InstanceDetail>>();
 const toEdit = (item: QuickStartPackages) => {
   const actualIndex = packages.value.findIndex((pkg) => findFn(pkg, item));
   editorRef?.value?.openDialog({ item, i: actualIndex });
+};
+
+const createTemplateFromInstance = (instance: UserInstance): QuickStartPackages => {
+  const template = JSON.parse(JSON.stringify(defaultQuickStartPackages)) as QuickStartPackages;
+  template.title = instance.nickname || instance.config?.nickname || "";
+  template.description = instance.nickname || instance.config?.nickname || "";
+  template.language = searchForm.language || appLangList.value[0]?.value || "zh_cn";
+  template.setupInfo = JSON.parse(
+    JSON.stringify(instance.config || defaultQuickStartPackages.setupInfo)
+  );
+  template.setupInfo.nickname = instance.nickname || template.setupInfo.nickname || "";
+  template.setupInfo.cwd = "";
+  template.setupInfo.basePort = undefined as any;
+  template.setupInfo.createDatetime = Date.now();
+  template.setupInfo.lastDatetime = 0;
+  template.setupInfo.endTime = 0;
+  if (template.setupInfo.docker) template.setupInfo.docker.containerName = "";
+  return template;
+};
+
+const toBlankTemplate = () => {
+  editorRef?.value?.openDialog({ i: -1 });
+};
+
+const importTemplateFromInstance = async () => {
+  const selectedInstances = await useSelectInstances([]);
+  const instance = selectedInstances?.[0];
+  if (!instance?.config) return;
+  editorRef?.value?.openDialog({ item: createTemplateFromInstance(instance), i: -1 });
 };
 
 const saveTemplate = (item: QuickStartPackages, i: number) => {
@@ -391,16 +423,24 @@ onMounted(() => {
         </a-button>
       </a-form-item>
 
-      <a-form-item class="mb-0">
-        <a-button
-          class="button-color-success"
-          size="large"
-          @click="editorRef?.openDialog({ i: -1 })"
-        >
+      <a-dropdown>
+        <template #overlay>
+          <a-menu>
+            <a-menu-item @click="toBlankTemplate">
+              <PlusOutlined />
+              {{ t("TXT_CODE_53499d7") }}
+            </a-menu-item>
+            <a-menu-item @click="importTemplateFromInstance">
+              <DatabaseOutlined />
+              {{ t("TXT_CODE_importFromInstance") }}
+            </a-menu-item>
+          </a-menu>
+        </template>
+        <a-button class="button-color-success" size="large">
           {{ t("TXT_CODE_3d45d8d") }}
-          <PlusOutlined />
+          <DownOutlined />
         </a-button>
-      </a-form-item>
+      </a-dropdown>
     </div>
   </a-form>
 

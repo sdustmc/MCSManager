@@ -295,7 +295,7 @@ const openDialog = async ({ item, i }: { item?: QuickStartPackages; i?: number }
       formData.value.template.setupInfo!.docker = _.cloneDeep(
         defaultQuickStartPackages.setupInfo!.docker
       );
-    isEditMode.value = true;
+    isEditMode.value = Number(i) >= 0;
     templateIndex.value = Number(i);
 
     formType.value = "template";
