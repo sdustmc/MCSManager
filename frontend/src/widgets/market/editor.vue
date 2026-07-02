@@ -156,6 +156,7 @@ const createTemplateFromInstance = (instance: UserInstance): QuickStartPackages 
   template.setupInfo.basePort = undefined as any;
   template.setupInfo.createDatetime = Date.now();
   template.setupInfo.lastDatetime = 0;
+  template.setupInfo.endTime = 0;
   if (template.setupInfo.docker) template.setupInfo.docker.containerName = "";
   return template;
 };
