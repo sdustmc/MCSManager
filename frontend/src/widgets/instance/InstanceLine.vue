@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useDeleteInstanceDialog } from "@/components/fc/index";
+import { openInstanceRemarksEditor, useDeleteInstanceDialog } from "@/components/fc/index";
 import { useAppRouters } from "@/hooks/useAppRouters";
 import { verifyEULA } from "@/hooks/useInstance";
 import { t } from "@/lang/i18n";
@@ -14,6 +14,7 @@ import {
   CodeOutlined,
   DatabaseOutlined,
   DeleteOutlined,
+  EditOutlined,
   ExclamationCircleOutlined,
   FrownOutlined,
   PauseCircleOutlined,
@@ -23,6 +24,7 @@ import {
 } from "@ant-design/icons-vue";
 import { message } from "ant-design-vue";
 import type { ColumnType } from "ant-design-vue/es/table";
+import { computed } from "vue";
 
 const props = defineProps<{
   column: ColumnType<any>;
@@ -52,6 +54,19 @@ const refreshList = () => {
   setTimeout(() => {
     emits("refreshList", daemonId, instanceId);
   }, 500);
+};
+
+const canUseRemarks = computed(() =>
+  Object.prototype.hasOwnProperty.call(props.targetInstanceInfo?.config || {}, "remarks")
+);
+const instanceRemarks = computed(() => props.targetInstanceInfo?.config.remarks || "");
+
+const openRemarksEditor = async () => {
+  if (!instanceId || !daemonId || !canUseRemarks.value) return;
+  const oldRemarks = instanceRemarks.value;
+  const newRemarks = await openInstanceRemarksEditor(instanceId, daemonId, oldRemarks);
+  if (props.targetInstanceInfo?.config) props.targetInstanceInfo.config.remarks = newRemarks;
+  if (newRemarks !== oldRemarks) refreshList();
 };
 
 const actions = {
@@ -114,7 +129,17 @@ const toInstanceTerminal = async () => {
           :content="record.name"
         />
       </a>
-      <span v-else :style="{ fontWeight: 'bold' }">
+      <a-tooltip v-if="!node && canUseRemarks" :title="instanceRemarks || t('TXT_CODE_b8e8e6f5')">
+        <a-button
+          class="instance-remarks-inline"
+          type="link"
+          size="small"
+          @click.stop="openRemarksEditor"
+        >
+          <EditOutlined />
+        </a-button>
+      </a-tooltip>
+      <span v-if="node" :style="{ fontWeight: 'bold' }">
         {{ record.name }}
       </span>
     </template>
@@ -203,3 +228,9 @@ const toInstanceTerminal = async () => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.instance-remarks-inline {
+  padding: 0 4px;
+}
+</style>

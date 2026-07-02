@@ -1,11 +1,12 @@
 import userSystem from "./user_service";
-import { User } from "../entity/user";
+import { isUserInstanceAvailable, User } from "../entity/user";
 
 export function isHaveInstance(user: User, daemonId: string, instanceUuid: string) {
   if (isTopPermission(user)) return true;
   if (user && user.instances) {
     for (const v of user.instances) {
-      if (daemonId === v.daemonId && instanceUuid === v.instanceUuid) return true;
+      if (daemonId === v.daemonId && instanceUuid === v.instanceUuid && isUserInstanceAvailable(v))
+        return true;
     }
   }
   return false;

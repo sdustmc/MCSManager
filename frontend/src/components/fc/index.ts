@@ -17,6 +17,7 @@ import DockerDeviceDialogVue from "./DockerDeviceDialog.vue";
 import DockerPortDialog from "./DockerPortDialog.vue";
 import DockerVersionSelectDialog from "./DockerVersionSelectDialog.vue";
 import DownloadFileDialogVue from "./DownloadFileDialog.vue";
+import InstanceRemarksDialog from "./InstanceRemarksDialog.vue";
 import DownloadJavaDialog from "./DownloadJavaDialog.vue";
 import NodeSelectDialog from "./NodeSelectDialog.vue";
 import RenewalDialog from "./RenewalDialog.vue";
@@ -213,6 +214,20 @@ export async function openInstanceTagsEditor(
     tags
   })
     .load<InstanceType<typeof TagsDialog>>(TagsDialog)
+    .openDialog();
+}
+
+export async function openInstanceRemarksEditor(
+  instanceId: string,
+  daemonId: string,
+  remarks?: string
+) {
+  return await useMountComponent({
+    instanceId,
+    daemonId,
+    remarks
+  })
+    .load<InstanceType<typeof InstanceRemarksDialog>>(InstanceRemarksDialog)
     .openDialog();
 }
 

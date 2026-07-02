@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import CardPanel from "@/components/CardPanel.vue";
-import { openInstanceTagsEditor, useDeleteInstanceDialog } from "@/components/fc/index";
+import {
+  openInstanceRemarksEditor,
+  openInstanceTagsEditor,
+  useDeleteInstanceDialog
+} from "@/components/fc/index";
 import { useAppRouters } from "@/hooks/useAppRouters";
 import { useLayoutCardTools } from "@/hooks/useCardTools";
 import { useInstanceInfo, verifyEULA } from "@/hooks/useInstance";
@@ -24,6 +28,7 @@ import {
   CloudDownloadOutlined,
   CodeOutlined,
   DeleteOutlined,
+  EditOutlined,
   ExclamationCircleOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
@@ -99,6 +104,20 @@ const refreshList = () => {
   setTimeout(() => {
     emits("refreshList");
   }, 500);
+};
+
+const canUseRemarks = computed(() =>
+  Object.prototype.hasOwnProperty.call(instanceInfo.value?.config || {}, "remarks")
+);
+const instanceRemarks = computed(() => instanceInfo.value?.config.remarks || "");
+
+const openRemarksEditor = async (event: MouseEvent) => {
+  event.stopPropagation();
+  if (!instanceId || !daemonId || !canUseRemarks.value) return;
+  const oldRemarks = instanceRemarks.value;
+  const newRemarks = await openInstanceRemarksEditor(instanceId, daemonId, oldRemarks);
+  if (instanceInfo.value?.config) instanceInfo.value.config.remarks = newRemarks;
+  if (newRemarks !== oldRemarks) refreshList();
 };
 
 const actions = {
@@ -309,6 +328,13 @@ const instanceOperations = computed(() =>
               </span>
             </a-tag>
 
+            <a-tooltip v-if="canUseRemarks" :title="instanceRemarks || t('TXT_CODE_b8e8e6f5')">
+              <a-tag class="m-0 instance-remarks-tag" @click="openRemarksEditor">
+                <EditOutlined />
+                {{ t("TXT_CODE_b8e8e6f5") }}
+              </a-tag>
+            </a-tooltip>
+
             <div v-if="instanceInfo?.config.tag && instanceInfo?.config.tag.length > 0">|</div>
             <a-tag v-for="item in instanceInfo?.config.tag" :key="item" class="m-0">
               {{ item }}
@@ -419,6 +445,10 @@ const instanceOperations = computed(() =>
 }
 .group-name-tag {
   margin: 4px;
+}
+
+.instance-remarks-tag {
+  cursor: pointer;
 }
 
 .instance-card-body {

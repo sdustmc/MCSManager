@@ -1,8 +1,13 @@
 <script setup lang="ts">
+import { openInstanceRemarksEditor } from "@/components/fc";
 import { useInstanceInfo } from "@/hooks/useInstance";
 import { t } from "@/lang/i18n";
 import type { LayoutCard } from "@/types";
-import { CheckCircleOutlined, ExclamationCircleOutlined } from "@ant-design/icons-vue";
+import {
+  CheckCircleOutlined,
+  EditOutlined,
+  ExclamationCircleOutlined
+} from "@ant-design/icons-vue";
 import { computed, onMounted, ref } from "vue";
 import { GLOBAL_INSTANCE_NAME } from "../../config/const";
 import { useLayoutCardTools } from "../../hooks/useCardTools";
@@ -45,6 +50,17 @@ const instanceGameServerInfo = computed(() => {
   }
 });
 
+const canUseRemarks = computed(() =>
+  Object.prototype.hasOwnProperty.call(instanceInfo.value?.config || {}, "remarks")
+);
+const instanceRemarks = computed(() => instanceInfo.value?.config.remarks || "");
+
+const openRemarksEditor = async () => {
+  if (!instanceId || !daemonId || !canUseRemarks.value) return;
+  const newRemarks = await openInstanceRemarksEditor(instanceId, daemonId, instanceRemarks.value);
+  if (instanceInfo.value?.config) instanceInfo.value.config.remarks = newRemarks;
+};
+
 onMounted(async () => {
   if (instanceId && daemonId) {
     await execute({
@@ -78,6 +94,19 @@ onMounted(async () => {
         <a-tag v-else class="tag" color="pink">
           {{ statusText }}
         </a-tag>
+      </a-typography-paragraph>
+      <a-typography-paragraph v-if="canUseRemarks">
+        <span>{{ t("TXT_CODE_b8e8e6f5") }}:</span>
+        <a-tooltip :title="instanceRemarks || t('TXT_CODE_b8e8e6f5')" placement="topLeft">
+          <a-button class="remarks-edit-btn" type="link" size="small" @click="openRemarksEditor">
+            <EditOutlined />
+            <a-typography-text
+              class="remarks-text"
+              :ellipsis="{ tooltip: false }"
+              :content="instanceRemarks || '--'"
+            />
+          </a-button>
+        </a-tooltip>
       </a-typography-paragraph>
       <a-typography-paragraph>
         <span>{{ t("TXT_CODE_68831be6") }}</span>
@@ -186,3 +215,17 @@ onMounted(async () => {
 
   <DockerInfo ref="DockerInfoDialog" :docker-info="instanceInfo?.config.docker" />
 </template>
+
+<style lang="scss" scoped>
+.remarks-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 4px;
+  padding-left: 4px;
+}
+
+.remarks-text {
+  max-width: 220px;
+}
+</style>

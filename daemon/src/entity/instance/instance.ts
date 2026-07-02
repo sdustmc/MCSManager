@@ -223,6 +223,11 @@ export default class Instance extends EventEmitter {
     configureEntityParams(this.config, cfg, "category", Number);
     configureEntityParams(this.config, cfg, "basePort", Number);
     configureEntityParams(this.config, cfg, "stopTimeout", Number);
+    configureEntityParams(this.config, cfg, "remarks", String);
+    if (this.config.remarks == null) this.config.remarks = "";
+    if (this.config.remarks.length > 500) {
+      this.config.remarks = this.config.remarks.slice(0, 500);
+    }
     // configureEntityParams does no range check: non-finite/null -> 0, negative -> 0, cap at 86400, floor to integer
     if (!Number.isFinite(this.config.stopTimeout) || this.config.stopTimeout < 0) {
       this.config.stopTimeout = 0;

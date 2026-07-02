@@ -142,7 +142,7 @@ function formatInstanceData(instance: IAdvancedInstanceInfo): IInstanceInfoProto
     name: instance.nickname || "",
     status: instance.status || 0,
     ports: portRules,
-    expire: instance.endTime || 0,
+    expire: instance.expireTime ?? instance.endTime ?? 0,
     lines
   };
 }
@@ -150,6 +150,38 @@ function formatInstanceData(instance: IAdvancedInstanceInfo): IInstanceInfoProto
 export function parseUserName(t?: string) {
   if (!t || typeof t !== "string") return "";
   return toText(t) ?? "";
+}
+
+async function syncUserInstanceExpireTime(
+  username: string,
+  daemonId: string,
+  instanceUuid: string,
+  expireTime: number
+) {
+  const users = username
+    ? [user_service.getUserByUserName(username)]
+    : Array.from(user_service.objects.values());
+
+  for (const user of users) {
+    if (!user) continue;
+    let updated = false;
+    const instances = user.instances.map((instance) => {
+      if (instance.daemonId !== daemonId || instance.instanceUuid !== instanceUuid) {
+        return instance;
+      }
+      updated = true;
+      return {
+        ...instance,
+        expireTime
+      };
+    });
+
+    if (updated) {
+      await user_service.edit(user.uuid, {
+        instances
+      });
+    }
+  }
 }
 
 export async function buyOrRenewInstance(
@@ -199,7 +231,8 @@ export async function buyOrRenewInstance(
           ...user.instances,
           {
             instanceUuid: newInstanceId,
-            daemonId: node_id
+            daemonId: node_id,
+            expireTime: toNumber(newInstanceConfig.endTime) || 0
           }
         ]
       });
@@ -212,7 +245,8 @@ export async function buyOrRenewInstance(
         instances: [
           {
             instanceUuid: newInstanceId,
-            daemonId: node_id
+            daemonId: node_id,
+            expireTime: toNumber(newInstanceConfig.endTime) || 0
           }
         ]
       });
@@ -260,10 +294,13 @@ export async function buyOrRenewInstance(
       config: config
     });
 
+    const expireTime = toNumber(config.endTime) || 0;
+    await syncUserInstanceExpireTime(username, node_id, instance_id, expireTime);
+
     return {
       instance_id,
       instance_config: config,
-      expire: toNumber(config.endTime) || 0,
+      expire: expireTime,
       username: "",
       password: "",
       uuid: ""

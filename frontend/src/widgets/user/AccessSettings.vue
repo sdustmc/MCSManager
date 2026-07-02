@@ -15,7 +15,8 @@ import { message } from "ant-design-vue";
 import { reportErrorMsg } from "@/tools/validator";
 import { INSTANCE_STATUS } from "@/types/const";
 import type { AntColumnsType, AntTableCell } from "@/types/ant";
-import dayjs from "dayjs";
+import type { Dayjs } from "dayjs";
+import { dayjsToTimestamp, timestampToDayjs } from "@/tools/time";
 import WarningDialog from "@/components/fc/WarningDialog.vue";
 import { useMountComponent } from "@/hooks/useMountComponent";
 
@@ -73,6 +74,12 @@ const assignApp = async () => {
   }
 };
 
+const handleExpireTimeChange = async (record: UserInstance, value?: Dayjs | string) => {
+  const expireTime = typeof value === "string" ? Number(value) : dayjsToTimestamp(value);
+  record.expireTime = Number.isFinite(expireTime) ? expireTime : 0;
+  await saveData();
+};
+
 const saveData = async () => {
   try {
     await updateUserInstance().execute({
@@ -100,7 +107,8 @@ async function refreshTableData() {
     await userInfoApiAdvanced().execute({
       params: {
         uuid: <string>userUuid,
-        advanced: true
+        advanced: true,
+        includeExpired: true
       },
       forceRequest: true
     })
@@ -142,15 +150,9 @@ const columns = computed(() => {
     {
       align: "center",
       title: t("TXT_CODE_fa920c0"),
-      dataIndex: "endTime",
-      key: "endTime",
-      minWidth: 200,
-      condition: () => !isPhone.value,
-      customRender: (row: { text: string | number }) => {
-        if (Number(row.text) === 0) return t("TXT_CODE_8dfd8b17");
-        if (!isNaN(Number(row.text))) return dayjs(Number(row.text)).format("YYYY-MM-DD HH:mm:ss");
-        return row.text;
-      }
+      dataIndex: "expireTime",
+      key: "expireTime",
+      minWidth: 260
     },
     {
       align: "center",
@@ -200,6 +202,16 @@ const columns = computed(() => {
           <template #body>
             <a-table :scroll="{ x: 'max-content' }" :data-source="dataSource" :columns="columns">
               <template #bodyCell="{ column, record }: AntTableCell">
+                <template v-if="column.key === 'expireTime'">
+                  <a-date-picker
+                    :value="timestampToDayjs(record.expireTime)"
+                    show-time
+                    allow-clear
+                    style="width: 100%"
+                    :placeholder="t('TXT_CODE_8dfd8b17')"
+                    @change="(value) => handleExpireTimeChange(record, value)"
+                  />
+                </template>
                 <template v-if="column.key === 'operation'">
                   <a-popconfirm :title="t('TXT_CODE_71155575')" @confirm="handleDelete(record)">
                     <a-button danger size="large">

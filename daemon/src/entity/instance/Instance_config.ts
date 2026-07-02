@@ -19,6 +19,7 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
   public lastDatetime = Date.now();
   public type = Instance.TYPE_UNIVERSAL;
   public tag: string[] = [];
+  public remarks = "";
   public endTime: number = 0;
   public fileCode: string = "utf-8";
   public processType: ProcessType = "general";

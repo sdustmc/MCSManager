@@ -4,6 +4,7 @@ import { t } from "i18next";
 import { toText } from "mcsmanager-common";
 import path from "path";
 import { MARKET_CACHE_FILE_PATH, SAVE_DIR_PATH } from "../const";
+import { isUserInstanceAvailable, normalizeUserInstanceExpireTime } from "../entity/user";
 import RemoteRequest from "../service/remote_command";
 import RemoteServiceSubsystem from "../service/remote_service";
 import userSystem from "../service/user_service";
@@ -34,6 +35,7 @@ export interface IAdvancedInstanceInfo {
   ie?: string;
   oe?: string;
   endTime?: number;
+  expireTime?: number;
   lastDatetime?: number;
   stopCommand?: string;
   processType?: string;
@@ -69,7 +71,8 @@ export function multiOperationForwarding(
 export async function getInstancesByUuid(
   uuid: string,
   targetDaemonId?: string,
-  advanced: boolean = false
+  advanced: boolean = false,
+  includeExpired: boolean = false
 ) {
   const user = userSystem.getInstance(uuid);
   if (!user) throw new Error("The UID does not exist");
@@ -79,6 +82,7 @@ export async function getInstancesByUuid(
   if (advanced) {
     const instances = user.instances;
     for (const iterator of instances) {
+      if (!includeExpired && !isUserInstanceAvailable(iterator)) continue;
       if (targetDaemonId && targetDaemonId !== iterator.daemonId) continue;
       const remoteService = RemoteServiceSubsystem.getInstance(iterator.daemonId);
       if (!remoteService || !remoteService.available) {
@@ -93,6 +97,7 @@ export async function getInstancesByUuid(
           ie: "",
           oe: "",
           endTime: 0,
+          expireTime: normalizeUserInstanceExpireTime(iterator.expireTime),
           lastDatetime: 0,
           stopCommand: "",
           processType: "",
@@ -118,6 +123,7 @@ export async function getInstancesByUuid(
           ie: instancesInfo.config.ie,
           oe: instancesInfo.config.oe,
           endTime: instancesInfo.config.endTime,
+          expireTime: normalizeUserInstanceExpireTime(iterator.expireTime),
           lastDatetime: instancesInfo.config.lastDatetime,
           stopCommand: instancesInfo.config.stopCommand,
           processType: instancesInfo.config.processType,
@@ -130,7 +136,12 @@ export async function getInstancesByUuid(
       }
     }
   } else {
-    resInstances = user.instances;
+    resInstances = user.instances
+      .filter((instance) => includeExpired || isUserInstanceAvailable(instance))
+      .map((instance) => ({
+        ...instance,
+        expireTime: normalizeUserInstanceExpireTime(instance.expireTime)
+      }));
   }
   // respond to user data
   return {

@@ -4,6 +4,10 @@ export interface UserInstance {
   nickname: string;
   daemonId: string;
   status: number;
+  remarks?: string;
+  endTime?: number;
+  expireTime?: number;
+  lastDatetime?: number;
   config?: IGlobalInstanceConfig;
 }
 

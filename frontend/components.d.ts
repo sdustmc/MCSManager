@@ -101,6 +101,7 @@ declare module 'vue' {
     InnerCard: typeof import('./src/components/InnerCard.vue')['default']
     InputDialogProvider: typeof import('./src/components/InputDialogProvider.vue')['default']
     InstanceConfigEditor: typeof import('./src/components/InstanceConfigEditor.vue')['default']
+    InstanceRemarksDialog: typeof import('./src/components/fc/InstanceRemarksDialog.vue')['default']
     KvOptionsDialog: typeof import('./src/components/fc/KvOptionsDialog.vue')['default']
     LayoutCard: typeof import('./src/components/LayoutCard.vue')['default']
     LeftMenuBtn: typeof import('./src/components/LeftMenuBtn.vue')['default']

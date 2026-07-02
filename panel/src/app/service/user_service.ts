@@ -6,7 +6,7 @@ import { authenticator } from "otplib";
 import { v4 } from "uuid";
 import Storage from "../common/storage/sys_storage";
 import { IUser } from "../entity/entity_interface";
-import { IUserApp, User, UserPassWordType } from "../entity/user";
+import { IUserApp, normalizeUserInstanceExpireTime, User, UserPassWordType } from "../entity/user";
 import { $t } from "../i18n";
 import { logger } from "./log";
 
@@ -112,7 +112,8 @@ class UserSubsystem {
     instanceIds.forEach((value) => {
       user.instances.push({
         instanceUuid: String(value.instanceUuid),
-        daemonId: String(value.daemonId)
+        daemonId: String(value.daemonId),
+        expireTime: normalizeUserInstanceExpireTime(value.expireTime)
       });
     });
   }

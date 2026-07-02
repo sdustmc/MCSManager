@@ -364,9 +364,11 @@ router.put(
       const instanceUuid = toText(ctx.query.uuid);
       const config = ctx.request.body;
 
+      const isTopPermission = isTopPermissionByUuid(getUserUuid(ctx));
       let instanceTags: string[] | null = null;
+      let instanceRemarks: string | null = null;
 
-      if (config.tag instanceof Array && isTopPermissionByUuid(getUserUuid(ctx))) {
+      if (config.tag instanceof Array && isTopPermission) {
         instanceTags = (config.tag as any[]).map((tag: any) => {
           const tmp = String(tag).trim();
           if (tmp.length > 20) throw new Error($t("TXT_CODE_1556989"));
@@ -376,6 +378,10 @@ router.put(
           throw new Error($t("TXT_CODE_dc9fb6ce"));
         }
         instanceTags = instanceTags!.sort((a, b) => (a > b ? 1 : -1));
+      }
+
+      if (config.remarks != null && isTopPermission) {
+        instanceRemarks = (toText(config.remarks) || "").slice(0, 500);
       }
 
       // Steam Rcon configuration
@@ -418,7 +424,6 @@ router.put(
       const fileCode = toText(config.fileCode);
       const stopCommand = config.stopCommand ? toText(config.stopCommand) : null;
       const remoteService = RemoteServiceSubsystem.getInstance(daemonId || "");
-      const isTopPermission = isTopPermissionByUuid(getUserUuid(ctx));
 
       let advancedConfig = {};
       advancedConfig = checkInstanceAdvancedParams(config, isTopPermission);
@@ -439,6 +444,7 @@ router.put(
           rconPassword,
           enableRcon,
           tag: instanceTags,
+          remarks: instanceRemarks,
           fileCode,
           ...advancedConfig
         }

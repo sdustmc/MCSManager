@@ -72,6 +72,7 @@ export const userInfoApiAdvanced = useDefineApi<
     params: {
       uuid: string;
       advanced: boolean;
+      includeExpired?: boolean;
     };
   },
   BaseUserInfo

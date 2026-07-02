@@ -39,10 +39,10 @@ const columns = [
   },
   {
     title: t("TXT_CODE_fa920c0"),
-    dataIndex: "endTime",
-    key: "endTime",
-    customRender: (e: { text: number }) => {
-      return parseTimestamp(e.text) || t("TXT_CODE_abc080d");
+    dataIndex: "expireTime",
+    key: "expireTime",
+    customRender: (e: { text: number; record: any }) => {
+      return parseTimestamp(e.text ?? e.record?.endTime) || t("TXT_CODE_abc080d");
     }
   },
   {

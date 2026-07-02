@@ -36,6 +36,9 @@ router.get(
       const result = await new RemoteRequest(remoteService).request("instance/detail", {
         instanceUuid
       });
+      if (!isTopPermissionByUuid(getUserUuid(ctx)) && result?.config) {
+        delete result.config.remarks;
+      }
       ctx.body = result;
     } catch (err) {
       ctx.body = err;

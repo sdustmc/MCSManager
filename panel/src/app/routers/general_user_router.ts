@@ -33,16 +33,25 @@ router.get(
 // get user data
 router.get("/", permission({ level: ROLE.USER, token: false, speedLimit: false }), async (ctx) => {
   // Default permission to get me
-  let uuid = getUserUuid(ctx);
+  const requestUserUuid = getUserUuid(ctx);
+  let uuid = requestUserUuid;
   // The front end can choose to require advanced data
   const advanced = ctx.query.advanced;
+  const isAdmin = isTopPermissionByUuid(requestUserUuid);
 
   // Admin permissions can be obtained from anyone
-  if (isTopPermissionByUuid(uuid) && ctx.query.uuid) uuid = String(ctx.query.uuid);
+  if (isAdmin && ctx.query.uuid) uuid = String(ctx.query.uuid);
+
+  const includeExpired = isAdmin && toBoolean(ctx.query.includeExpired) === true;
 
   // Some and only Ajax requests grant access
   if (isAjax(ctx)) {
-    const res = await getInstancesByUuid(uuid, undefined, toBoolean(advanced) || false);
+    const res = await getInstancesByUuid(
+      uuid,
+      undefined,
+      toBoolean(advanced) || false,
+      includeExpired
+    );
     res.token = getToken(ctx);
     ctx.body = res;
   }

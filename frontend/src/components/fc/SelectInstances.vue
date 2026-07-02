@@ -106,11 +106,15 @@ const selectItem = (item: UserInstance) => {
 };
 
 const findItem = (item: UserInstance) => {
-  return selectedItems.value.find((i) => i.instanceUuid === item.instanceUuid);
+  return selectedItems.value.find(
+    (i) => i.daemonId === item.daemonId && i.instanceUuid === item.instanceUuid
+  );
 };
 
 const removeItem = (item: UserInstance) => {
-  selectedItems.value = selectedItems.value.filter((i) => i.instanceUuid !== item.instanceUuid);
+  selectedItems.value = selectedItems.value.filter(
+    (i) => i.daemonId !== item.daemonId || i.instanceUuid !== item.instanceUuid
+  );
 };
 
 const clearAll = () => (selectedItems.value = []);
