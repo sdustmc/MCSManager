@@ -239,7 +239,13 @@ class InstanceSubsystem extends EventEmitter {
       if (instance.status() !== Instance.STATUS_STOP) throw new Error($t("TXT_CODE_fb547313"));
       if (instance.config.processType === "docker") {
         const workspace = storageQuotaService.resolveDockerHostWorkspace(instance, this.instanceDataDir);
-        await storageQuotaService.deleteDockerHardQuotaIfManaged(instance, workspace);
+        try {
+          await storageQuotaService.deleteDockerHardQuotaIfManaged(instance, workspace);
+        } catch (error: any) {
+          logger.warn(
+            `Failed to clear hard storage quota for ${instance.instanceUuid}: ${error?.message ?? error}`
+          );
+        }
       }
       const cwd = instance.absoluteCwdPath();
       if (deleteFile) await fs.remove(cwd);

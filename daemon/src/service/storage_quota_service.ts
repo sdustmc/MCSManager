@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import StorageSubsystem from "../common/system_storage";
+import { globalConfiguration } from "../entity/config";
 import Instance from "../entity/instance/instance";
 import { $t } from "../i18n";
 
@@ -154,6 +155,11 @@ class StorageQuotaService {
     return cwd;
   }
 
+  public resolveDockerDiskWorkspace(instance: Instance) {
+    if (instance.config.processType !== "docker") return instance.absoluteCwdPath();
+    return this.resolveDockerHostWorkspace(instance, this.#getDefaultInstanceDir());
+  }
+
   public async ensureDockerHardQuota(instance: Instance, workspace: string, maxSpaceGb: number) {
     if (!Number.isFinite(maxSpaceGb) || maxSpaceGb <= 0) return;
     return this.#withQuotaOperationLock(async () => {
@@ -204,11 +210,20 @@ class StorageQuotaService {
   async #clearDockerHardQuotaIfManaged(instance: Instance, workspace: string, removeProject: boolean) {
     const projectName = this.#getProjectName(instance);
     const projectFiles = await this.#readProjectFiles();
-    const projectId = instance.config.docker.storageQuotaProjectId ?? projectFiles.projids.get(projectName);
-    if (!projectId || projectFiles.projids.get(projectName) !== projectId) return;
+    const registeredProjectId = projectFiles.projids.get(projectName);
+    const configuredProjectId = Number(instance.config.docker.storageQuotaProjectId || 0) || undefined;
+    const projectId = registeredProjectId ?? configuredProjectId;
+    if (!projectId) return;
+    if (registeredProjectId && configuredProjectId && registeredProjectId !== configuredProjectId) return;
+    if (!registeredProjectId && !removeProject) {
+      instance.config.docker.storageQuotaProjectId = undefined;
+      StorageSubsystem.store("InstanceConfig", instance.instanceUuid, instance.config);
+      return;
+    }
 
     const projectWorkspace = projectFiles.projects.get(projectId) ?? workspace;
-    if (await fs.pathExists(projectWorkspace)) {
+    const canResetQuota = registeredProjectId === projectId;
+    if (canResetQuota && (await fs.pathExists(projectWorkspace))) {
       const mountInfo = await this.#getXfsProjectQuotaMount(projectWorkspace);
       await this.#assertXfsQuotaCommand();
       await execWithSudo("xfs_quota", [
@@ -217,7 +232,7 @@ class StorageQuotaService {
         `limit -p bhard=0 ${projectName}`,
         mountInfo.mountPoint
       ]);
-    } else {
+    } else if (!removeProject) {
       throw new Error(
         $t("TXT_CODE_storage_quota_workspace_not_visible", {
           path: projectWorkspace
@@ -322,6 +337,12 @@ class StorageQuotaService {
 
   #toQuotaKiB(maxSpaceGb: number) {
     return `${Math.ceil(maxSpaceGb * HARD_QUOTA_HEADROOM_RATIO * 1024 * 1024)}k`;
+  }
+
+  #getDefaultInstanceDir() {
+    return path.normalize(
+      globalConfiguration.config.defaultInstancePath || path.join(process.cwd(), "data/InstanceData")
+    );
   }
 
   async #readProjectFiles(): Promise<IProjectFiles> {

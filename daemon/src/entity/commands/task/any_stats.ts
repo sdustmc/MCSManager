@@ -1,4 +1,5 @@
 import disk_limit_service from "../../../service/disk_limit_service";
+import storageQuotaService from "../../../service/storage_quota_service";
 import Instance from "../../instance/instance";
 import { ILifeCycleTask } from "../../instance/life_cycle";
 
@@ -17,7 +18,10 @@ export default class InstanceDiskCheckTask implements ILifeCycleTask {
         ? HARD_QUOTA_DISK_CHECK_INTERVAL_MS
         : DEFAULT_DISK_CHECK_INTERVAL_MS;
     this.task = setInterval(() => {
-      disk_limit_service.checkInstanceDiskSize(instance);
+      disk_limit_service.checkInstanceDiskSize(
+        instance,
+        storageQuotaService.resolveDockerDiskWorkspace(instance)
+      );
     }, interval);
   }
 
