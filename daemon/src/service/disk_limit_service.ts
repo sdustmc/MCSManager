@@ -31,6 +31,7 @@ class DiskLimitService {
 
   async checkInstanceDiskSize(instance: Instance, workspace = instance.absoluteCwdPath()) {
     const maxSpace = Number(instance.config.docker.maxSpace);
+    if (maxSpace <= 0) return;
     this.queue.push({
       key: instance.instanceUuid,
       item: {

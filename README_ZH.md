@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://mcsmanager.com/" target="_blank">
-    <img src="https://public-link.oss-cn-shenzhen.aliyuncs.com/mcsm_picture/logo.png" alt="MCSManagerLogo.png" width="510px" />    
+    <img src="./frontend/src/assets/logo.png" alt="MCSManagerLogo.png" width="510px" />    
   </a>
 
   <br />
@@ -89,14 +89,15 @@ MCSM 同样也考虑了**商业应用**，例如由 **IDC 服务提供商**进�
 **一行命令快速安装**
 
 ```bash
-sudo su -c "wget -qO- https://script.mcsmanager.com/setup.sh | bash"
+sudo su -c "wget -qO- https://script.mcsmanager.com/setup_cn.sh | bash"
 ```
 
 **安装后的使用方法**
 
 ```bash
-systemctl start mcsm-{web,daemon} # 开启面板
-systemctl stop mcsm-{web,daemon}  # 关闭面板
+systemctl start mcsm-{web,daemon} # 开启面板和节点端
+systemctl stop mcsm-{web,daemon}  # 关闭面板和节点端
+systemctl disable mcsm-web #禁用面板端，适用于被控主机
 ```
 
 - 脚本仅适用于 Ubuntu/Centos/Debian/Archlinux
@@ -131,16 +132,16 @@ tar -zxf mcsmanager_linux_release.tar.gz
 chmod 775 install.sh
 ./install.sh
 
-# 请打开两个终端或screen。
+# 请打开两个终端或使用screen程序。
 
 # 先启动节点程序。
 ./start-daemon.sh
 
-# 启动网络服务(在第二个终端或screen)。
+# 启动面板程序(在第二个终端或screen)。
 ./start-web.sh
 
 # 访问 http://<公网 IP>:23333/ 查看面板。
-# 一般来说，网络应用会自动扫描并连接到本地守护进程。
+# 一般来说，面板端会自动扫描并连接到本地守护进程。
 ```
 
 这种安装方式不会自动注册面板到系统服务（Service），所以必须使用 `screen` 软件来管理，如果你希望由系统服务来接管 MCSManager，请参考文档。
@@ -177,7 +178,7 @@ chmod 775 install.sh
 ./start-web.sh
 
 # 访问 http://localhost:23333/ 查看面板。
-# 一般来说，网络应用会自动扫描并连接到本地守护进程。
+# 一般来说，面板端会自动扫描并连接到本地守护进程。
 ```
 
 <br />
@@ -217,11 +218,11 @@ services:
 注意（Linux Rootless Docker）：Daemon 端已支持读取 `DOCKER_HOST`。如果你的 Docker 运行在 rootless 模式，socket 通常位于 `/run/user/<uid>/docker.sock`（而不是 `/var/run/docker.sock`）。此时请把默认的 socket 挂载替换为 rootless socket，并设置 `DOCKER_HOST`，例如：
 
 ```yml
-  daemon:
-    environment:
-      - DOCKER_HOST=unix:///run/user/1000/docker.sock
-    volumes:
-      - /run/user/1000/docker.sock:/run/user/1000/docker.sock
+daemon:
+  environment:
+    - DOCKER_HOST=unix:///run/user/1000/docker.sock
+  volumes:
+    - /run/user/1000/docker.sock:/run/user/1000/docker.sock
 ```
 
 把 `1000` 替换成你的实际 UID（`id -u`）。
@@ -259,7 +260,7 @@ docker compose pull && docker compose up -d
 
 感谢以下开发者为 MCSManager 安全性提供重要的代码贡献！
 
-> [@Cuo256](https://github.com/Cuo256), [@xiaosu](https://github.com/xiaosuawa), [@tianjiefeifei](https://github.com/tianjiefeifei)
+> [@Cuo256](https://github.com/Cuo256), [@xiaosu](https://github.com/xiaosuawa), [@tianjiefeifei](https://github.com/tianjiefeifei), [9Bakabaka](https://github.com/9Bakabaka)
 
 <br />
 

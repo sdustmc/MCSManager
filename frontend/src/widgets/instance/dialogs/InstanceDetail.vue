@@ -979,7 +979,9 @@ defineExpose({
                   <DockerImageSelect
                     :is-allow-empty="true"
                     :is-allow-text="t('TXT_CODE_8aca7994')"
-                    :model-value="formData.instance.config?.docker?.updateCommandImage ?? ''"
+                    :is-allow-host="true"
+                    :is-allow-host-text="t('TXT_CODE_update_cmd_no_image')"
+                    :model-value="formData.instance.config?.docker?.updateCommandImage ?? 'HOST'"
                     :image-select-method="formData.instance.imageSelectMethod ?? 'SELECT'"
                     :daemon-id="daemonId ?? ''"
                     @update:model-value="
@@ -1540,9 +1542,9 @@ defineExpose({
               </a-col>
               <a-col :xs="24" :lg="8" :offset="0">
                 <a-form-item>
-                  <a-typography-title :level="5">{{
-                    t("TXT_CODE_network_upload_limit")
-                  }}</a-typography-title>
+                  <a-typography-title :level="5">
+                    {{ t("TXT_CODE_network_upload_limit") }}
+                  </a-typography-title>
                   <a-typography-paragraph>
                     <a-tooltip :title="t('TXT_CODE_network_upload_limit_help')" placement="top">
                       <a-typography-text type="secondary" class="typography-text-ellipsis">
@@ -1560,9 +1562,9 @@ defineExpose({
               </a-col>
               <a-col :xs="24" :lg="8" :offset="0">
                 <a-form-item>
-                  <a-typography-title :level="5">{{
-                    t("TXT_CODE_network_download_limit")
-                  }}</a-typography-title>
+                  <a-typography-title :level="5">
+                    {{ t("TXT_CODE_network_download_limit") }}
+                  </a-typography-title>
                   <a-typography-paragraph>
                     <a-tooltip :title="t('TXT_CODE_network_download_limit_help')" placement="top">
                       <a-typography-text type="secondary" class="typography-text-ellipsis">
@@ -1581,24 +1583,13 @@ defineExpose({
 
               <a-col :xs="24" :lg="8" :offset="0">
                 <a-form-item>
-                  <a-typography-title :level="5">{{
-                    t("TXT_CODE_59653f38")
-                  }}</a-typography-title>
+                  <a-typography-title :level="5">
+                    {{ t("TXT_CODE_59653f38") }}
+                  </a-typography-title>
                   <a-typography-paragraph>
-                    <a-tooltip
-                      :title="
-                        t(
-                          'TXT_CODE_edbb92dc'
-                        )
-                      "
-                      placement="top"
-                    >
+                    <a-tooltip :title="t('TXT_CODE_edbb92dc')" placement="top">
                       <a-typography-text type="secondary" class="typography-text-ellipsis">
-                        {{
-                          t(
-                            "TXT_CODE_edbb92dc"
-                          )
-                        }}
+                        {{ t("TXT_CODE_edbb92dc") }}
                       </a-typography-text>
                     </a-tooltip>
                   </a-typography-paragraph>
@@ -1612,24 +1603,13 @@ defineExpose({
 
               <a-col :xs="24" :lg="8" :offset="0">
                 <a-form-item>
-                  <a-typography-title :level="5">{{
-                    t("TXT_CODE_9d2e6d5e")
-                  }}</a-typography-title>
+                  <a-typography-title :level="5">
+                    {{ t("TXT_CODE_9d2e6d5e") }}
+                  </a-typography-title>
                   <a-typography-paragraph>
-                    <a-tooltip
-                      :title="
-                        t(
-                          'TXT_CODE_2b2ff3ff'
-                        )
-                      "
-                      placement="top"
-                    >
+                    <a-tooltip :title="t('TXT_CODE_2b2ff3ff')" placement="top">
                       <a-typography-text type="secondary" class="typography-text-ellipsis">
-                        {{
-                          t(
-                            "TXT_CODE_2b2ff3ff"
-                          )
-                        }}
+                        {{ t("TXT_CODE_2b2ff3ff") }}
                       </a-typography-text>
                     </a-tooltip>
                   </a-typography-paragraph>
@@ -1665,9 +1645,9 @@ defineExpose({
               <template v-if="formData.instance?.config?.docker?.gpuEnabled">
                 <a-col :xs="24" :lg="8" :offset="0">
                   <a-form-item>
-                    <a-typography-title :level="5">{{
-                      t("TXT_CODE_gpu_driver")
-                    }}</a-typography-title>
+                    <a-typography-title :level="5">
+                      {{ t("TXT_CODE_gpu_driver") }}
+                    </a-typography-title>
                     <a-typography-paragraph>
                       <a-tooltip :title="t('TXT_CODE_gpu_driver_help')" placement="top">
                         <a-typography-text type="secondary" class="typography-text-ellipsis">
@@ -1683,9 +1663,9 @@ defineExpose({
                 </a-col>
                 <a-col :xs="24" :lg="8" :offset="0">
                   <a-form-item>
-                    <a-typography-title :level="5">{{
-                      t("TXT_CODE_gpu_alloc_mode")
-                    }}</a-typography-title>
+                    <a-typography-title :level="5">
+                      {{ t("TXT_CODE_gpu_alloc_mode") }}
+                    </a-typography-title>
                     <a-typography-paragraph>
                       <a-tooltip :title="t('TXT_CODE_gpu_alloc_mode_help')" placement="top">
                         <a-typography-text type="secondary" class="typography-text-ellipsis">
@@ -1695,20 +1675,20 @@ defineExpose({
                     </a-typography-paragraph>
                     <a-radio-group v-model:value="gpuAllocMode" @change="onGpuAllocModeChange">
                       <a-radio-button value="all">{{ t("TXT_CODE_gpu_alloc_all") }}</a-radio-button>
-                      <a-radio-button value="count">{{
-                        t("TXT_CODE_gpu_alloc_count")
-                      }}</a-radio-button>
-                      <a-radio-button value="deviceIds">{{
-                        t("TXT_CODE_gpu_alloc_device_ids")
-                      }}</a-radio-button>
+                      <a-radio-button value="count">
+                        {{ t("TXT_CODE_gpu_alloc_count") }}
+                      </a-radio-button>
+                      <a-radio-button value="deviceIds">
+                        {{ t("TXT_CODE_gpu_alloc_device_ids") }}
+                      </a-radio-button>
                     </a-radio-group>
                   </a-form-item>
                 </a-col>
                 <a-col v-if="gpuAllocMode === 'count'" :xs="24" :lg="8" :offset="0">
                   <a-form-item>
-                    <a-typography-title :level="5">{{
-                      t("TXT_CODE_gpu_count")
-                    }}</a-typography-title>
+                    <a-typography-title :level="5">
+                      {{ t("TXT_CODE_gpu_count") }}
+                    </a-typography-title>
                     <a-typography-paragraph>
                       <a-tooltip :title="t('TXT_CODE_gpu_count_help')" placement="top">
                         <a-typography-text type="secondary" class="typography-text-ellipsis">
@@ -1728,9 +1708,9 @@ defineExpose({
                 </a-col>
                 <a-col v-if="gpuAllocMode === 'deviceIds'" :xs="24" :lg="16" :offset="0">
                   <a-form-item>
-                    <a-typography-title :level="5">{{
-                      t("TXT_CODE_gpu_device_ids")
-                    }}</a-typography-title>
+                    <a-typography-title :level="5">
+                      {{ t("TXT_CODE_gpu_device_ids") }}
+                    </a-typography-title>
                     <a-typography-paragraph>
                       <a-tooltip :title="t('TXT_CODE_gpu_device_ids_help')" placement="top">
                         <a-typography-text type="secondary" class="typography-text-ellipsis">

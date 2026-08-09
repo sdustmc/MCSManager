@@ -374,6 +374,7 @@ routerApp.on("instance/delete", async (ctx, data) => {
     try {
       const instance = InstanceSubsystem.getInstance(instanceUuid);
       if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+      if (instance.status() !== Instance.STATUS_STOP) throw new Error($t("TXT_CODE_fb547313"));
       const deletedInstance = {
         instanceUuid: instance.instanceUuid,
         nickname: instance.config.nickname

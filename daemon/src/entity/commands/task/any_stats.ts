@@ -18,10 +18,13 @@ export default class InstanceDiskCheckTask implements ILifeCycleTask {
         ? HARD_QUOTA_DISK_CHECK_INTERVAL_MS
         : DEFAULT_DISK_CHECK_INTERVAL_MS;
     this.task = setInterval(() => {
-      disk_limit_service.checkInstanceDiskSize(
-        instance,
-        storageQuotaService.resolveDockerDiskWorkspace(instance)
-      );
+      const maxSpace = Number(instance.config.docker?.maxSpace);
+      if (maxSpace > 0) {
+        const workspace = instance.config.docker?.enableHardStorageQuota
+          ? storageQuotaService.resolveDockerDiskWorkspace(instance)
+          : instance.absoluteCwdPath();
+        disk_limit_service.checkInstanceDiskSize(instance, workspace);
+      }
     }, interval);
   }
 
