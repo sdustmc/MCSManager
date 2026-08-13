@@ -3393,7 +3393,7 @@
   "TXT_CODE_d86fbff5": "此限制僅在 Linux 系統上支援。它依賴系統指令 `du`。啟動前與執行期間，每 1 到 10 分鐘會檢查工作目錄大小。若超出限制，執行個體將自動停止。",
   "TXT_CODE_285cef0c": "單位：GB。例如，60 表示 60GB，0 表示無限制。",
   "TXT_CODE_storage_quota_hard_limit": "硬儲存配額",
-  "TXT_CODE_storage_quota_hard_limit_help": "使用 XFS project quota 對該儲存額度做系統級硬限制。需求：實例目錄必須位於已啟用 prjquota 或 pquota 的 XFS 檔案系統。若 Daemon 以 root 執行，可直接管理配額；若以非 root 使用者執行，請為 xfs_quota、cat、tee 設定免密 sudo，並允許更新 /etc/projects 與 /etc/projid。若 Daemon 在 Docker 中執行，請將宿主機實例目錄以相同絕對路徑掛載進 Daemon。",
+  "TXT_CODE_storage_quota_hard_limit_help": "使用 XFS project quota 實施硬限制。實例目錄必須位於啟用 prjquota 或 pquota 的 XFS 檔案系統。請用隔離服務執行 Daemon，並僅授予所需的檔案與配額權限；切勿為 cat、tee 或 xfs_quota 設定不限制參數的免密 sudo。同一宿主機上的所有 Daemon 必須共用 MCSM_STORAGE_QUOTA_LOCK_PATH。Docker 部署還需以相同絕對路徑掛載宿主機工作目錄。",
   "TXT_CODE_storage_quota_applied": "硬儲存配額已套用，限制為 {{storageLimit}}GB",
   "TXT_CODE_storage_quota_linux_only": "硬儲存配額僅支援 Linux。",
   "TXT_CODE_storage_quota_mount_not_found": "硬儲存配額失敗：無法找到 {{path}} 的掛載點。",
@@ -3407,7 +3407,7 @@
   "TXT_CODE_storage_quota_workspace_conflict": "硬儲存配額失敗：{{path}} 已分配給 project id {{id}}。",
   "TXT_CODE_storage_quota_project_file_write_failed": "硬儲存配額失敗：無法更新 /etc/projects 或 /etc/projid。{{error}}",
   "TXT_CODE_storage_quota_apply_failed": "硬儲存配額失敗：無法套用 XFS project quota。{{error}}",
-  "TXT_CODE_storage_quota_sudo_required": "硬儲存配額需要 root 權限。請以 root 執行 Daemon，或為 xfs_quota、cat、tee 設定免密 sudo。{{error}}",
+  "TXT_CODE_storage_quota_sudo_required": "Daemon 缺少管理 XFS project quota 或專案檔案的直接權限。請使用隔離服務並僅授予必要權限；切勿為 cat、tee 或 xfs_quota 設定不限制參數的免密 sudo。{{error}}",
   "TXT_CODE_5d88a9b": "色彩主題",
   "TXT_CODE_ee01c10c": "預設主題",
   "TXT_CODE_4eb158da": "版面模式",
@@ -3465,5 +3465,7 @@
   "TXT_CODE_9d2e6d5e": "裝置寫入速率限制 (BPS)",
   "TXT_CODE_2b2ff3ff": "限制容器特定區塊裝置的寫入速率。格式：/dev/sda:5MB。多個裝置請用逗號分隔。",
   "TXT_CODE_f0dc9eca": "範例：/dev/sda:5MB",
-  "TXT_CODE_importFromInstance": "從既有實例匯入"
+  "TXT_CODE_importFromInstance": "從既有實例匯入",
+  "TXT_CODE_importTemplateDockerOnly": "僅 Docker 執行個體可轉換為可攜式範本。",
+  "TXT_CODE_templateSensitiveFields": "偵測到可能的密碼或權杖，請在上傳或匯出範本前刪除：{{fields}}"
 }

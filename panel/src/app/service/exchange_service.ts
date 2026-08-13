@@ -142,7 +142,7 @@ function formatInstanceData(instance: IAdvancedInstanceInfo): IInstanceInfoProto
     name: instance.nickname || "",
     status: instance.status || 0,
     ports: portRules,
-    expire: instance.expireTime ?? instance.endTime ?? 0,
+    expire: instance.expireTime ?? 0,
     lines
   };
 }
@@ -162,6 +162,7 @@ async function syncUserInstanceExpireTime(
     ? [user_service.getUserByUserName(username)]
     : Array.from(user_service.objects.values());
 
+  let updatedCount = 0;
   for (const user of users) {
     if (!user) continue;
     let updated = false;
@@ -170,6 +171,7 @@ async function syncUserInstanceExpireTime(
         return instance;
       }
       updated = true;
+      updatedCount++;
       return {
         ...instance,
         expireTime
@@ -182,6 +184,10 @@ async function syncUserInstanceExpireTime(
       });
     }
   }
+  if (username && updatedCount === 0) {
+    throw new Error(t("TXT_CODE_permission.forbiddenInstance"));
+  }
+  return updatedCount;
 }
 
 export async function buyOrRenewInstance(
@@ -264,6 +270,15 @@ export async function buyOrRenewInstance(
   }
 
   if (request_action === RequestAction.RENEW) {
+    if (username) {
+      const targetUser = user_service.getUserByUserName(username);
+      const ownsInstance = targetUser?.instances.some(
+        (instance) => instance.daemonId === node_id && instance.instanceUuid === instance_id
+      );
+      if (!targetUser || !ownsInstance) {
+        throw new Error(t("TXT_CODE_permission.forbiddenInstance"));
+      }
+    }
     const instanceInfo = await remoteRequest.request("instance/detail", {
       instanceUuid: instance_id
     });
@@ -318,7 +333,7 @@ export async function queryInstanceByUserId(
   const user = user_service.getUserByUserName(name);
   if (!user) throw new Error(t("TXT_CODE_903b6c50"));
 
-  const { instances = [] } = await getInstancesByUuid(user.uuid, targetDaemonId, true);
+  const { instances = [] } = await getInstancesByUuid(user.uuid, targetDaemonId, true, true);
   const newInstancesInfo = instances.map((v) => {
     return formatInstanceData(v);
   });

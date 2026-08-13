@@ -114,7 +114,7 @@ const finalConfirm = async () => {
 const uploadStarted = ref(false);
 const uploadFileInstance = ref<UploadFiles>();
 let uploadStartCallback: (() => void) | undefined = undefined;
-let uploadEndCallback: (() => void) | undefined = undefined;
+let uploadEndCallback: ((success?: boolean) => void) | undefined = undefined;
 onUnmounted(() => {
   if (uploadFileInstance.value) {
     if (uploadStartCallback) uploadFileInstance.value.removeCallback("start", uploadStartCallback);
@@ -178,7 +178,8 @@ const selectedFile = async () => {
     );
     uploadFileInstance.value = task;
     const instanceUuid = cfg.value.instanceUuid;
-    uploadEndCallback = () => {
+    uploadEndCallback = (success = true) => {
+      if (!success) return;
       emit("nextStep", instanceUuid);
       return message.success(t("TXT_CODE_d28c05df"));
     };

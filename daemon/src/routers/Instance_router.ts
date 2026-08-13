@@ -194,11 +194,24 @@ routerApp.on("instance/update", async (ctx, data) => {
   try {
     const instance = InstanceSubsystem.getInstance(instanceUuid);
     if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    const managedHardStorageQuota = Boolean(
+      instance.config.docker.enableHardStorageQuota || instance.config.docker.storageQuotaProjectId
+    );
+    const nextProcessType = config?.processType ?? instance.config.processType;
+    const nextHardStorageQuota =
+      config?.docker?.enableHardStorageQuota ?? instance.config.docker.enableHardStorageQuota;
+    const currentCwd = instance.absoluteCwdPath();
+    const configuredCwd = config?.cwd == null ? currentCwd : String(config.cwd);
+    const nextCwd = path.normalize(
+      path.isAbsolute(configuredCwd) ? configuredCwd : path.join(process.cwd(), configuredCwd)
+    );
     const shouldRemoveHardStorageQuota =
-      instance.config.processType === "docker" &&
-      config?.docker?.enableHardStorageQuota === false &&
-      (instance.config.docker.enableHardStorageQuota || instance.config.docker.storageQuotaProjectId);
+      managedHardStorageQuota &&
+      (!nextHardStorageQuota || nextProcessType !== "docker" || nextCwd !== currentCwd);
     if (shouldRemoveHardStorageQuota) {
+      if (instance.status() !== Instance.STATUS_STOP) {
+        throw new Error($t("TXT_CODE_fb547313"));
+      }
       const workspace = storageQuotaService.resolveDockerHostWorkspace(
         instance,
         InstanceSubsystem.getInstanceDataDir()

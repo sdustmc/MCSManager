@@ -8,8 +8,11 @@ import { $t } from "../i18n";
 import { missionPassport } from "../service/mission_passport";
 import FileManager from "../service/system_file";
 import InstanceSubsystem from "../service/system_instance";
+import { applyDockerRunAsOwnership } from "../service/upload_ownership_service";
+import { selectArchiveOwnershipTargets } from "../service/upload_ownership_utils";
 import uploadManager from "../service/upload_manager";
 import { clearUploadFiles } from "../tools/filepath";
+import { parseBooleanQuery } from "../tools/http_query";
 import { sendFile } from "../utils/speed_limit";
 
 const router = new Router();
@@ -56,7 +59,8 @@ router.get("/download/:key/:fileName", async (ctx) => {
 // Old version upload route
 router.post("/upload/:key", async (ctx) => {
   const key = String(ctx.params.key);
-  const unzip = Boolean(ctx.query.unzip);
+  const unzip = parseBooleanQuery(ctx.query.unzip);
+  const overwrite = parseBooleanQuery(ctx.query.overwrite, true);
   const zipCode = String(ctx.query.code);
   let tmpFiles: formidable.File | formidable.File[] | undefined;
   try {
@@ -66,7 +70,7 @@ router.post("/upload/:key", async (ctx) => {
     if (!instance) throw new Error("Access denied: No instance found");
     const uploadDir = mission.parameter.uploadDir;
     const cwd = instance.absoluteCwdPath();
-    const tmpFiles = ctx.request.files?.file;
+    tmpFiles = ctx.request.files?.file;
     if (tmpFiles) {
       let uploadedFile: formidable.File;
       if (tmpFiles instanceof Array) {
@@ -92,7 +96,7 @@ router.post("/upload/:key", async (ctx) => {
         fs.existsSync(
           fileManager.toAbsolutePath(path.normalize(path.join(uploadDir, tempFileSaveName)))
         ) &&
-        ctx.query.overwrite === "false"
+        !overwrite
       ) {
         if (counter == 1) {
           tempFileSaveName = `${basename}-copy${ext}`;
@@ -115,7 +119,14 @@ router.post("/upload/:key", async (ctx) => {
 
       if (unzip) {
         const instanceFiles = new FileManager(instance.absoluteCwdPath());
-        instanceFiles.unzip(fileSaveAbsolutePath, ".", zipCode);
+        let ownershipTargets: string[] = [];
+        await instanceFiles.unzip(fileSaveAbsolutePath, ".", zipCode, async (entryPaths) => {
+          ownershipTargets = await selectArchiveOwnershipTargets(entryPaths);
+        });
+        ownershipTargets.push(fileSaveAbsolutePath);
+        await applyDockerRunAsOwnership(instance, ownershipTargets);
+      } else {
+        await applyDockerRunAsOwnership(instance, [fileSaveAbsolutePath]);
       }
       ctx.body = "OK";
       return;
@@ -133,12 +144,12 @@ router.post("/upload/:key", async (ctx) => {
 
 router.post("/upload-new/:key", async (ctx) => {
   const key = String(ctx.params.key);
-  const unzip = Boolean(ctx.query.unzip);
+  const unzip = parseBooleanQuery(ctx.query.unzip);
   const zipCode = String(ctx.query.code);
   const filename = String(ctx.query.filename);
   const size = Number(ctx.query.size);
-  const deleteAfterUnzip = Boolean(ctx.query.deleteAfterUnzip);
-  if (ctx.query.stop) {
+  const deleteAfterUnzip = parseBooleanQuery(ctx.query.deleteAfterUnzip);
+  if (parseBooleanQuery(ctx.query.stop)) {
     const writer = uploadManager.get(key);
     if (writer) {
       await writer.stop();
@@ -152,16 +163,19 @@ router.post("/upload-new/:key", async (ctx) => {
     }
   }
   try {
+    if (!Number.isSafeInteger(size) || size < 0) {
+      throw new Error($t("TXT_CODE_http_router.invalidUploadSize"));
+    }
     const mission = missionPassport.getMission(key, "upload");
     if (!mission) throw new Error("Access denied: No task found");
     const instance = InstanceSubsystem.getInstance(mission.parameter.instanceUuid);
     if (!instance) throw new Error("Access denied: No instance found");
     const uploadDir = mission.parameter.uploadDir;
     const cwd = instance.absoluteCwdPath();
-    const overwrite = ctx.query.overwrite !== "false";
+    const overwrite = parseBooleanQuery(ctx.query.overwrite, true);
     const filePath = await FileWriter.getPath(cwd, uploadDir, filename, overwrite);
     let fr = uploadManager.getByPath(filePath);
-    if (fr && size != fr.writer.size) {
+    if (fr && (size != fr.writer.size || fr.writer.hasFailed())) {
       uploadManager.delete(fr.id);
       await fr.writer.stop();
       fr = undefined;
@@ -179,7 +193,16 @@ router.post("/upload-new/:key", async (ctx) => {
       await fileWriter.init();
       const id = uploadManager.add(fileWriter);
       fr = { id, writer: fileWriter };
+      if (size === 0) {
+        try {
+          await fileWriter.done();
+        } catch (error) {
+          await fileWriter.stop();
+          throw error;
+        }
+      }
     }
+    if (fr.writer.isFullyReceived()) await fr.writer.done();
 
     ctx.body = {
       data: {
@@ -203,6 +226,9 @@ router.post("/upload-piece/:id", async (ctx) => {
   const tmpFiles = ctx.request.files?.file;
 
   try {
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      throw new Error($t("TXT_CODE_http_router.invalidUploadOffset"));
+    }
     if (!tmpFiles) {
       ctx.body = "Access denied: No file found";
       ctx.status = 500;
@@ -222,13 +248,13 @@ router.post("/upload-piece/:id", async (ctx) => {
     const chunk = await fs.readFile(uploadedFile.filepath);
     await writer.write(offset, chunk);
 
-    if (tmpFiles) clearUploadFiles(tmpFiles);
-
     ctx.body = "OK";
     return;
   } catch (error: any) {
     ctx.body = error.message;
     ctx.status = 500;
+  } finally {
+    if (tmpFiles) clearUploadFiles(tmpFiles);
   }
 });
 

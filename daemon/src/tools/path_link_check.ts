@@ -28,3 +28,22 @@ export function resolveRealPath(absolutePath: string): string | null {
     }
   }
 }
+
+export function isPathOutsideWorkspace(topPath: string, targetPath: string): boolean {
+  const realTop = resolveRealPath(topPath);
+  const realTarget = resolveRealPath(targetPath);
+  if (!realTop || !realTarget) return true;
+
+  const relative = path.relative(realTop, realTarget);
+  return relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative);
+}
+
+export function isUnsafeArchiveTarget(targetPath: string): boolean {
+  try {
+    const stat = fs.lstatSync(targetPath);
+    return stat.isSymbolicLink() || (stat.isFile() && stat.nlink !== 1);
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return false;
+    return true;
+  }
+}

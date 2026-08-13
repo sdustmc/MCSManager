@@ -6,6 +6,7 @@ import path from "path";
 import { GOLANG_ZIP_PATH, SEVEN_ZIP_PATH, ZIP_TIMEOUT_SECONDS } from "../const";
 import { $t } from "../i18n";
 import logger from "../service/log";
+import type { ArchiveEntryInfo } from "../tools/archive_entry";
 import {
   check7zipStatus,
   getFileExtension,
@@ -103,11 +104,6 @@ export async function decompress(
   }
 }
 
-export interface ArchiveEntryInfo {
-  name: string;
-  isDirectory: boolean;
-}
-
 export async function listArchiveEntries(sourceArchive: string): Promise<ArchiveEntryInfo[]> {
   const { stdout } = await runSpawn(
     SEVEN_ZIP_PATH,
@@ -125,13 +121,21 @@ export async function listArchiveEntries(sourceArchive: string): Promise<Archive
       if (currentEntry) entries.push(currentEntry);
       currentEntry = {
         name: line.slice("Path = ".length),
-        isDirectory: false
+        isDirectory: false,
+        isLink: false
       };
     } else if (
       currentEntry &&
       (line === "Folder = +" || line === "Attributes = D" || line.startsWith("Attributes = D "))
     ) {
       currentEntry.isDirectory = true;
+    } else if (
+      currentEntry &&
+      (line.startsWith("Symbolic Link = ") ||
+        line.startsWith("Hard Link = ") ||
+        /^Attributes = .*\sl[rwx-]{9}(?:\s|$)/.test(line))
+    ) {
+      currentEntry.isLink = true;
     }
   }
   if (currentEntry) entries.push(currentEntry);

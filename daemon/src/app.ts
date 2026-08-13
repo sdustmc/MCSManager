@@ -14,6 +14,7 @@ import * as koa from "./service/http";
 import logger from "./service/log";
 import * as protocol from "./service/protocol";
 import * as router from "./service/router";
+import storageQuotaService from "./service/storage_quota_service";
 import InstanceSubsystem from "./service/system_instance";
 import "./service/system_visual_data";
 import uploadManager from "./service/upload_manager";
@@ -59,6 +60,12 @@ if (fs.existsSync(LOCAL_PRESET_LANG_PATH)) {
   i18next.changeLanguage(lang);
 }
 logger.info($t("TXT_CODE_app.welcome"));
+
+// Recover an interrupted /etc/projects + /etc/projid update as soon as the Daemon starts.
+// Quota operations share the same queue, so incoming requests cannot overtake recovery.
+storageQuotaService.recoverPendingProjectFileTransaction().catch((error) => {
+  logger.error("Failed to recover the XFS project quota transaction:", error);
+});
 
 // Initialize HTTP service
 const koaApp = koa.initKoa();

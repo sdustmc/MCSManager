@@ -251,7 +251,7 @@ export const useFileManager = (instanceId: string = "", daemonId: string = "") =
     unzipmode: "0",
     code: "utf-8",
     ref: ref<VNodeRef>(),
-    ok: () => { },
+    ok: () => {},
     cancel: () => {
       dialog.value.value = "";
     },
@@ -290,7 +290,7 @@ export const useFileManager = (instanceId: string = "", daemonId: string = "") =
         dialog.value.info = "";
         dialog.value.mode = "";
         dialog.value.style = {};
-        dialog.value.ok = () => { };
+        dialog.value.ok = () => {};
       };
     });
   };
@@ -578,6 +578,7 @@ export const useFileManager = (instanceId: string = "", daemonId: string = "") =
   const createUploadCompletionTracker = (handler: () => void | Promise<void>) => {
     let pendingCount = 0;
     let finished = false;
+    let failed = false;
 
     const handleCompletion = () => {
       if (finished) return;
@@ -594,9 +595,10 @@ export const useFileManager = (instanceId: string = "", daemonId: string = "") =
           instanceId: instanceId || "",
           daemonId: daemonId || ""
         };
-        task.addCallback("end", () => {
+        task.addCallback("end", (success = true) => {
+          if (!success) failed = true;
           pendingCount -= 1;
-          if (pendingCount === 0) handleCompletion();
+          if (pendingCount === 0 && !failed) handleCompletion();
         });
       }
     };
@@ -723,9 +725,9 @@ export const useFileManager = (instanceId: string = "", daemonId: string = "") =
           const decision = sharedDecision
             ? { ...sharedDecision, applyToAll: true }
             : await confirmUploadConflict(
-              fileName,
-              countRemainingUploadConflicts(uploadQueue, i, occupiedNames)
-            );
+                fileName,
+                countRemainingUploadConflicts(uploadQueue, i, occupiedNames)
+              );
 
           if (decision.applyToAll) {
             sharedDecision = {
@@ -881,7 +883,9 @@ export const useFileManager = (instanceId: string = "", daemonId: string = "") =
       Modal.confirm({
         title: t("TXT_CODE_99ca8563"),
         content: t("TXT_CODE_58a55f17", { name: folderName }),
-        onOk: () => { startUpload(); },
+        onOk: () => {
+          startUpload();
+        },
         okText: t("TXT_CODE_5bf41818"),
         cancelText: t("TXT_CODE_518528d0")
       });
@@ -1056,8 +1060,9 @@ export const useFileManager = (instanceId: string = "", daemonId: string = "") =
         console.error("Failed to revert to old path after jump failure:", err)
       );
 
-      const errorMsg = `${t("TXT_CODE_96281410")} ${error.response?.data?.message || error.message || ""
-        }`;
+      const errorMsg = `${t("TXT_CODE_96281410")} ${
+        error.response?.data?.message || error.message || ""
+      }`;
       return reportErrorMsg(errorMsg);
     } finally {
       spinning.value = false;

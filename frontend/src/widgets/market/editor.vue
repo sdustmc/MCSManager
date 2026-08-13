@@ -3,16 +3,18 @@ import { useSelectInstances } from "@/components/fc";
 import CardPanel from "@/components/CardPanel.vue";
 import Loading from "@/components/Loading.vue";
 import { router } from "@/config/router";
-import { useMarketPackages } from "@/hooks/useMarketPackages";
-import { t } from "@/lang/i18n";
+import { SEARCH_ALL_KEY, useMarketPackages } from "@/hooks/useMarketPackages";
+import { getCurrentLang, t } from "@/lang/i18n";
 import { setSettingInfo } from "@/services/apis";
 import { uploadFile } from "@/services/apis/layout";
 import { useAppToolsStore } from "@/stores/useAppToolsStore";
+import {
+  createPortableTemplateFromInstance,
+  findTemplateSensitiveFields
+} from "@/tools/instanceTemplate";
 import { filterEmptyFields } from "@/tools/object";
 import { reportErrorMsg } from "@/tools/validator";
 import type { QuickStartPackages, QuickStartTemplate } from "@/types";
-import { defaultQuickStartPackages } from "@/types/const";
-import type { UserInstance } from "@/types/user";
 import {
   CopyOutlined,
   DatabaseOutlined,
@@ -115,8 +117,20 @@ const importFromClipboard = async () => {
   }
 };
 
+const validateTemplateForPublishing = () => {
+  const findings = findTemplateSensitiveFields(rawList.value);
+  if (!findings.length) return true;
+  message.error(
+    t("TXT_CODE_templateSensitiveFields", {
+      fields: findings.slice(0, 5).join(", ")
+    })
+  );
+  return false;
+};
+
 const downloadMarketJson = () => {
   if (!packages.value.length) return message.warning(t("TXT_CODE_8e223f23"));
+  if (!validateTemplateForPublishing()) return;
   const dataStr = JSON.stringify(rawList.value, null, 2);
   const blob = new Blob([dataStr], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -143,33 +157,26 @@ const toEdit = (item: QuickStartPackages) => {
   editorRef?.value?.openDialog({ item, i: actualIndex });
 };
 
-const createTemplateFromInstance = (instance: UserInstance): QuickStartPackages => {
-  const template = JSON.parse(JSON.stringify(defaultQuickStartPackages)) as QuickStartPackages;
-  template.title = instance.nickname || instance.config?.nickname || "";
-  template.description = instance.nickname || instance.config?.nickname || "";
-  template.language = searchForm.language || appLangList.value[0]?.value || "zh_cn";
-  template.setupInfo = JSON.parse(
-    JSON.stringify(instance.config || defaultQuickStartPackages.setupInfo)
-  );
-  template.setupInfo.nickname = instance.nickname || template.setupInfo.nickname || "";
-  template.setupInfo.cwd = "";
-  template.setupInfo.basePort = undefined as any;
-  template.setupInfo.createDatetime = Date.now();
-  template.setupInfo.lastDatetime = 0;
-  template.setupInfo.endTime = 0;
-  if (template.setupInfo.docker) template.setupInfo.docker.containerName = "";
-  return template;
-};
-
 const toBlankTemplate = () => {
   editorRef?.value?.openDialog({ i: -1 });
 };
 
 const importTemplateFromInstance = async () => {
-  const selectedInstances = await useSelectInstances([]);
+  const selectedInstances = await useSelectInstances([], 1);
   const instance = selectedInstances?.[0];
   if (!instance?.config) return;
-  editorRef?.value?.openDialog({ item: createTemplateFromInstance(instance), i: -1 });
+  if (instance.config.processType !== "docker") {
+    message.warning(t("TXT_CODE_importTemplateDockerOnly"));
+    return;
+  }
+  const language =
+    searchForm.language && searchForm.language !== SEARCH_ALL_KEY
+      ? searchForm.language
+      : getCurrentLang();
+  editorRef?.value?.openDialog({
+    item: createPortableTemplateFromInstance(instance, language),
+    i: -1
+  });
 };
 
 const saveTemplate = (item: QuickStartPackages, i: number) => {
@@ -258,6 +265,7 @@ const uploadToPanel = async () => {
     });
     if (!(await confirmPromise)) return;
   }
+  if (!validateTemplateForPublishing()) return;
   const uploadFormData = new FormData();
   const dataStr = JSON.stringify(rawList.value, null, 2);
   const blob = new Blob([dataStr], { type: "application/json" });

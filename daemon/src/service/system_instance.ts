@@ -181,7 +181,8 @@ class InstanceSubsystem extends EventEmitter {
     } catch (error) {
       try {
         if (createdCwd) fs.removeSync(cwd);
-        if (persistence && !storedConfigExists) StorageSubsystem.delete("InstanceConfig", instance.instanceUuid);
+        if (persistence && !storedConfigExists)
+          StorageSubsystem.delete("InstanceConfig", instance.instanceUuid);
       } catch (cleanupError: any) {
         logger.warn(
           `Failed to rollback instance creation for ${instance.instanceUuid}: ${cleanupError?.message ?? cleanupError}`
@@ -237,15 +238,15 @@ class InstanceSubsystem extends EventEmitter {
     const instance = this.getInstance(instanceUuid);
     if (instance) {
       if (instance.status() !== Instance.STATUS_STOP) throw new Error($t("TXT_CODE_fb547313"));
-      if (instance.config.processType === "docker") {
-        const workspace = storageQuotaService.resolveDockerHostWorkspace(instance, this.instanceDataDir);
-        try {
-          await storageQuotaService.deleteDockerHardQuotaIfManaged(instance, workspace);
-        } catch (error: any) {
-          logger.warn(
-            `Failed to clear hard storage quota for ${instance.instanceUuid}: ${error?.message ?? error}`
-          );
-        }
+      if (
+        instance.config.docker.storageQuotaProjectId ||
+        instance.config.docker.enableHardStorageQuota
+      ) {
+        const workspace = storageQuotaService.resolveDockerHostWorkspace(
+          instance,
+          this.instanceDataDir
+        );
+        await storageQuotaService.deleteDockerHardQuotaIfManaged(instance, workspace);
       }
       const cwd = instance.absoluteCwdPath();
       if (deleteFile) await fs.remove(cwd);

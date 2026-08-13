@@ -1,5 +1,6 @@
 import FileWriter from "../entity/file_writer";
 import { v4 } from "uuid";
+import logger from "./log";
 
 class UploadManager {
   private readonly uploads: Map<string, FileWriter> = new Map();
@@ -50,7 +51,7 @@ class UploadManager {
           await writer.stop();
           this.uploads.delete(key);
         } catch (e) {
-          console.error(`Failed to stop upload writer for key ${key}:`, e);
+          logger.error(`Failed to stop upload writer for key ${key}:`, e);
         }
       }
     }
@@ -62,7 +63,7 @@ class UploadManager {
         await writer.stop();
         this.uploads.delete(key);
       } catch (e) {
-        console.error(`Failed to stop upload writer for key ${key}:`, e);
+        logger.error(`Failed to stop upload writer for key ${key}:`, e);
       }
     }
   }

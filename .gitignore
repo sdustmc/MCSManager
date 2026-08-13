@@ -14,6 +14,7 @@ lib/
 production/
 .DS_Store
 production-code/
+*-production-code*.tar.gz
 test.js
 .idea/
 ai-api.key

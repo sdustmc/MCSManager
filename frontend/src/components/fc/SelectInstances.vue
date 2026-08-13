@@ -26,6 +26,7 @@ interface Props extends MountComponent {
   keyTitle?: string;
   valueTitle?: string;
   data: UserInstance[];
+  maxSelection?: number;
   columns?: AntColumnsType[];
 }
 
@@ -111,6 +112,11 @@ const selectedItems = ref<UserInstance[]>(
 );
 
 const selectItem = (item: UserInstance) => {
+  if (props.maxSelection === 1) {
+    selectedItems.value = [item];
+    return;
+  }
+  if (props.maxSelection && selectedItems.value.length >= props.maxSelection) return;
   selectedItems.value.push(item);
 };
 

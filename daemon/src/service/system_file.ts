@@ -7,8 +7,9 @@ import path from "path";
 import { compress, decompress, listArchiveEntries } from "../common/compress";
 import { globalConfiguration } from "../entity/config";
 import { $t, i18next } from "../i18n";
+import { ArchiveEntryInfo, isArchiveLink } from "../tools/archive_entry";
 import { normalizedJoin } from "../tools/filepath";
-import { resolveRealPath } from "../tools/path_link_check";
+import { isPathOutsideWorkspace, isUnsafeArchiveTarget } from "../tools/path_link_check";
 
 const ERROR_MSG_01 = $t("TXT_CODE_system_file.illegalAccess");
 const ERROR_PATH_NOT_FOUND = $t("TXT_CODE_96281410");
@@ -47,11 +48,7 @@ export default class FileManager {
   private isOutsideWorkspace(absPath: string): boolean {
     // fix the /app/ vs /app mismatch bug and keep it secure
     if (this.isRootTopRath()) return false;
-    const realTop = resolveRealPath(this.topPath);
-    const realPath = resolveRealPath(absPath);
-    if (!realTop || !realPath) return true; // If the path cannot be resolved, treat it as outside for safety
-    const relative = path.relative(realTop, realPath);
-    return relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative);
+    return isPathOutsideWorkspace(this.topPath, absPath);
   }
 
   toAbsolutePath(fileName: string = "") {
@@ -260,29 +257,38 @@ export default class FileManager {
     await fs.move(targetPath, destPath);
   }
 
-  async unzip(sourceZip: string, destDir: string, code?: string) {
+  async unzip(
+    sourceZip: string,
+    destDir: string,
+    code?: string,
+    beforeExtract?: (entryPaths: string[]) => void | Promise<void>
+  ) {
     if (!code) code = this.fileCode;
     if (!this.check(sourceZip) || !this.checkPath(destDir)) throw new Error(ERROR_MSG_01);
     this.zipFileCheck(this.toAbsolutePath(sourceZip));
     const absSource = this.toAbsolutePath(sourceZip);
     const absDest = this.toAbsolutePath(destDir);
 
-    const hasZipSlip = await this.hasZipSlip(absSource, absDest);
-    if (hasZipSlip) throw new Error(ERROR_MSG_01);
+    const entryPaths = await this.listArchiveEntryPaths(absSource, absDest);
+    await beforeExtract?.(entryPaths);
 
     return await decompress(absSource, absDest, code);
   }
 
-  private async hasZipSlip(absSource: string, absDest: string): Promise<boolean> {
+  async listArchiveEntryPaths(sourceZip: string, destDir: string): Promise<string[]> {
+    if (!this.check(sourceZip) || !this.checkPath(destDir)) throw new Error(ERROR_MSG_01);
+    const absSource = this.toAbsolutePath(sourceZip);
+    const absDest = this.toAbsolutePath(destDir);
+    this.zipFileCheck(absSource);
     const zip = new StreamZip.async({ file: absSource });
 
-    let archiveEntries: Array<{ name: string; isDirectory: boolean }>;
+    let archiveEntries: ArchiveEntryInfo[];
     try {
       // zip archive
       archiveEntries = Object.values(await zip.entries());
     } catch (err: any) {
       const reason = String(err?.message);
-      if (reason.includes("Malicious entry")) return true;
+      if (reason.includes("Malicious entry")) throw new Error(ERROR_MSG_01);
       if (reason !== "Bad archive" && reason !== "Archive read error") throw err;
 
       // other archive
@@ -291,8 +297,9 @@ export default class FileManager {
       await zip.close().catch(() => {});
     }
 
-    const entryDirs = new Set<string>();
+    const entryPaths = new Set<string>();
     for (const entry of archiveEntries) {
+      if (isArchiveLink(entry)) throw new Error(ERROR_MSG_01);
       const entryPath = path.resolve(absDest, entry.name);
       const relativeEntryPath = path.relative(absDest, entryPath);
       if (
@@ -300,15 +307,27 @@ export default class FileManager {
         relativeEntryPath.startsWith(".." + path.sep) ||
         path.isAbsolute(relativeEntryPath)
       ) {
-        return true;
+        throw new Error(ERROR_MSG_01);
       }
-      entryDirs.add(entry.isDirectory ? entryPath : path.dirname(entryPath));
+
+      if (entryPath !== absDest) {
+        entryPaths.add(entryPath);
+        let parentPath = path.dirname(entryPath);
+        while (parentPath !== absDest) {
+          entryPaths.add(parentPath);
+          const nextParentPath = path.dirname(parentPath);
+          if (nextParentPath === parentPath) throw new Error(ERROR_MSG_01);
+          parentPath = nextParentPath;
+        }
+      }
     }
 
-    for (const entryDir of entryDirs) {
-      if (this.isOutsideWorkspace(entryDir)) return true;
+    for (const entryPath of entryPaths) {
+      if (this.isOutsideWorkspace(entryPath) || isUnsafeArchiveTarget(entryPath)) {
+        throw new Error(ERROR_MSG_01);
+      }
     }
-    return false;
+    return [...entryPaths];
   }
 
   async zip(sourceZip: string, files: string[], code?: string) {

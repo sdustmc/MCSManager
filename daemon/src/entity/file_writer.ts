@@ -1,13 +1,16 @@
 import fs from "fs-extra";
 import path from "path";
 import * as lockfile from "proper-lockfile";
+import { $t } from "../i18n";
 import logger from "../service/log";
+import { openLockedUploadFile } from "../service/upload_file_lock";
 import FileManager from "../service/system_file";
 import uploadManager from "../service/upload_manager";
-import { globalEnv } from "./config";
+import { applyDockerRunAsOwnership } from "../service/upload_ownership_service";
+import { selectArchiveOwnershipTargets } from "../service/upload_ownership_utils";
+import { addChunkRange, type ChunkRange, isChunkRangeFullyCovered } from "../tools/chunk_range";
+import { globalConfiguration, globalEnv } from "./config";
 import Instance from "./instance/instance";
-
-type ChunkRange = { start: number; end: number };
 
 export default class FileWriter {
   readonly path: string;
@@ -15,6 +18,9 @@ export default class FileWriter {
   cwd?: string;
   private releaseLock?: () => Promise<void>;
   private fd: number | null = null;
+  private completion?: Promise<void>;
+  private completionFailed = false;
+  private fileTaskReserved = false;
   readonly received: ChunkRange[] = [];
   lastUpdate: number = Date.now();
 
@@ -29,6 +35,9 @@ export default class FileWriter {
   ) {
     if (!FileManager.checkFileName(path.basename(this.filename)))
       throw new Error("Access denied: Malformed file name");
+    if (!Number.isSafeInteger(this.size) || this.size < 0) {
+      throw new Error($t("TXT_CODE_http_router.invalidUploadSize"));
+    }
 
     this.path = filePath;
     this.cwd = instance.absoluteCwdPath();
@@ -76,114 +85,151 @@ export default class FileWriter {
     return fileManager.toAbsolutePath(fileSaveRelativePath);
   }
 
+  isFullyReceived(): boolean {
+    return isChunkRangeFullyCovered(this.received, this.size);
+  }
+
+  hasFailed(): boolean {
+    return this.completionFailed;
+  }
+
   async init() {
     if (this.fd != null) return;
-    let locked = false;
     try {
-      if (lockfile.checkSync(this.path)) locked = true;
-    } catch {}
-    if (locked) {
-      throw new Error("File is locked");
-    }
-    try {
-      this.fd = await fs.open(this.path, "w+");
-      this.releaseLock = await lockfile.lock(this.path);
-      await fs.ftruncate(this.fd, this.size);
-    } catch (e) {
-      if (typeof this.releaseLock === "function") await this.releaseLock();
-      this.releaseLock = undefined;
-      throw e;
+      const fileManager = new FileManager(this.cwd);
+      const lockedFile = await openLockedUploadFile(this.path, this.size, () =>
+        fileManager.checkPath(this.path)
+      );
+      this.fd = lockedFile.fd;
+      this.releaseLock = lockedFile.releaseLock;
+    } catch (error: any) {
+      if (error?.code === "ELOCKED") {
+        throw new Error($t("TXT_CODE_http_router.fileLocked"));
+      }
+      if (error?.code === "EINVALIDUPLOAD" || error?.code === "ELOOP") {
+        throw new Error($t("TXT_CODE_system_file.illegalAccess"));
+      }
+      throw error;
     }
   }
 
   async write(offset: number, chunk: Buffer) {
     this.lastUpdate = Date.now();
-    if (offset + chunk.length > this.size) throw new Error("Write exceeds file size limit");
+    if (this.completion) return await this.completion;
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      throw new Error($t("TXT_CODE_http_router.invalidUploadOffset"));
+    }
+    if (offset > this.size - chunk.length) {
+      throw new Error($t("TXT_CODE_http_router.uploadExceedsSize"));
+    }
     if (this.fd === null) throw new Error("File is not opened");
     await fs.write(this.fd, chunk, 0, chunk.length, offset);
 
-    this.addWrittenRange(offset, offset + chunk.length);
-    if (this.isFullyCovered()) {
-      this.done().catch((e) => {
-        logger.error("Error completing file upload:", e);
-      }); // async
+    addChunkRange(this.received, offset, offset + chunk.length);
+    if (isChunkRangeFullyCovered(this.received, this.size)) {
+      await this.done();
     }
   }
 
   async done() {
-    if (this.fd != null) {
-      await fs.close(this.fd);
-      this.fd = null;
-      await this.releaseLock!();
+    if (!this.completion) {
+      if (this.unzip) this.reserveFileTask();
+      this.completion = this.complete();
+    }
+    return await this.completion;
+  }
+
+  private reserveFileTask() {
+    const maxFileTask = globalConfiguration.config.maxFileTask;
+    const fileLock = this.instance.info.fileLock ?? 0;
+    if (fileLock >= maxFileTask) {
+      throw new Error(
+        $t("TXT_CODE_file_router.unzipLimit", {
+          maxFileTask,
+          fileLock
+        })
+      );
     }
 
-    if (this.id != null) {
-      uploadManager.delete(this.id);
+    globalEnv.fileTaskCount++;
+    this.instance.info.fileLock = fileLock + 1;
+    this.fileTaskReserved = true;
+  }
+
+  private releaseFileTask() {
+    if (!this.fileTaskReserved) return;
+    this.fileTaskReserved = false;
+    globalEnv.fileTaskCount--;
+    const fileLock = this.instance.info.fileLock ?? 1;
+    this.instance.info.fileLock = Math.max(0, fileLock - 1);
+  }
+
+  private async closeFile() {
+    if (this.fd === null) return;
+    const fd = this.fd;
+    const releaseLock = this.releaseLock;
+    this.fd = null;
+    this.releaseLock = undefined;
+    try {
+      await fs.close(fd);
+    } finally {
+      await releaseLock?.();
     }
+  }
 
-    logger.info("Browser Uploaded File:", this.path);
+  private async complete() {
+    try {
+      await this.closeFile();
+      logger.info("Browser Uploaded File:", this.path);
 
-    if (this.unzip) {
-      // Statistics of the number of tasks in a single instance file and the number of tasks in the entire daemon process
-
-      globalEnv.fileTaskCount++;
-      if (this.instance) this.instance.info.fileLock++;
-
-      try {
-        const instanceFiles = new FileManager(this.cwd);
-        await instanceFiles.unzip(this.path, path.dirname(this.path), this.zipCode);
-        logger.info("File unzipped:", this.path);
-
-        if (this.deleteAfterUnzip) {
-          await fs.remove(this.path);
-          logger.info("Temporary zip deleted:", this.path);
+      if (this.unzip) {
+        try {
+          const instanceFiles = new FileManager(this.cwd);
+          let ownershipTargets: string[] = [];
+          await instanceFiles.unzip(
+            this.path,
+            path.dirname(this.path),
+            this.zipCode,
+            async (entryPaths) => {
+              ownershipTargets = await selectArchiveOwnershipTargets(entryPaths);
+            }
+          );
+          logger.info("File unzipped:", this.path);
+          if (!this.deleteAfterUnzip) {
+            ownershipTargets.push(this.path);
+          }
+          await applyDockerRunAsOwnership(this.instance, ownershipTargets);
+        } finally {
+          if (this.deleteAfterUnzip && (await fs.pathExists(this.path))) {
+            await fs.remove(this.path);
+            logger.info("Temporary zip deleted:", this.path);
+          }
         }
-      } finally {
-        globalEnv.fileTaskCount--;
-        if (this.instance) this.instance.info.fileLock--;
+      } else {
+        await applyDockerRunAsOwnership(this.instance, [this.path]);
       }
+
+      if (this.id != null) {
+        uploadManager.delete(this.id);
+      }
+    } catch (error) {
+      this.completionFailed = true;
+      throw error;
+    } finally {
+      this.releaseFileTask();
     }
   }
 
   async stop() {
-    if (this.fd != null) {
-      await fs.close(this.fd);
-      this.fd = null;
-      await this.releaseLock!();
+    if (this.completion) {
+      await this.completion.catch(() => {});
     }
+    await this.closeFile();
     if (this.id != null) {
       uploadManager.delete(this.id);
     }
     await fs.remove(this.path);
     logger.info("Browser Upload Task Stopped:", this.path);
-  }
-
-  private addWrittenRange(start: number, end: number): void {
-    if (start > end) return;
-
-    let i = 0;
-    let ranges = this.received;
-    while (i < ranges.length && ranges[i].end < start - 1) i++;
-
-    let mergeStart = start,
-      mergeEnd = end;
-    let removeCount = 0;
-
-    while (i + removeCount < ranges.length && ranges[i + removeCount].start <= end + 1) {
-      mergeStart = Math.min(mergeStart, ranges[i + removeCount].start);
-      mergeEnd = Math.max(mergeEnd, ranges[i + removeCount].end);
-      removeCount++;
-    }
-
-    ranges.splice(i, removeCount, { start: mergeStart, end: mergeEnd });
-  }
-
-  private isFullyCovered(): boolean {
-    return (
-      this.received.length === 1 &&
-      this.received[0].start === 0 &&
-      this.received[0].end === this.size
-    );
   }
 
   private readStreamToHash(

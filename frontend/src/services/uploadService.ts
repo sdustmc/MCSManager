@@ -16,6 +16,8 @@ type UploadOptions = {
   code?: string;
 };
 
+type UploadCallback = (success?: boolean) => void;
+
 export class UploadFiles {
   file: File;
   id: string | undefined;
@@ -33,8 +35,8 @@ export class UploadFiles {
       }
     | undefined;
   callbacks: {
-    onStart: Set<() => void>;
-    onEnd: Set<() => void>;
+    onStart: Set<UploadCallback>;
+    onEnd: Set<UploadCallback>;
   };
 
   constructor(tempId: string, file: File, url: string, password: string, options: UploadOptions) {
@@ -78,16 +80,19 @@ export class UploadFiles {
       this.prepared = true;
       if (this.canceled) {
         await this.stop();
+        return;
       }
 
       uploadService.update();
     } catch (err: any) {
       this.removing = true;
-      return reportErrorMsg(err.response?.data || err.message);
+      this.prepared = true;
+      reportErrorMsg(err.response?.data || err.message);
+      uploadService.update();
     }
   }
 
-  addCallback(type: "start" | "end", callback: () => void) {
+  addCallback(type: "start" | "end", callback: UploadCallback) {
     if (type == "start") {
       this.callbacks.onStart.add(callback);
     }
@@ -96,7 +101,7 @@ export class UploadFiles {
     }
   }
 
-  removeCallback(type: "start" | "end", callback: () => void) {
+  removeCallback(type: "start" | "end", callback: UploadCallback) {
     if (type == "start") {
       this.callbacks.onStart.delete(callback);
     }
@@ -116,10 +121,10 @@ export class UploadFiles {
     this.callbacks.onStart.clear();
   }
 
-  onEnd() {
+  onEnd(success = true) {
     this.callbacks.onEnd.forEach((callback) => {
       try {
-        callback();
+        callback(success);
       } catch (e) {
         console.error("Error in upload end callback:", e);
       }
@@ -141,6 +146,11 @@ export class UploadFiles {
   }
 
   async stop() {
+    if (this.removing) {
+      this.onEnd(false);
+      uploadService.files.delete(this.id!);
+      return;
+    }
     if (!this.prepared) {
       this.canceled = true;
       return;
@@ -153,7 +163,7 @@ export class UploadFiles {
         stop: true
       }
     });
-    this.onEnd();
+    this.onEnd(false);
     uploadService.files.delete(this.id!);
   }
 }
@@ -338,9 +348,10 @@ class UploadService {
     }
     if (this.status == "working" && this.current) {
       const currentFile = this.files.get(this.current)!;
-      let reachTaskEnd = removeFile;
+      const removeCurrentFile = removeFile || currentFile.removing;
+      let reachTaskEnd = removeCurrentFile;
 
-      if (removeFile) {
+      if (reachTaskEnd) {
         this.task = [];
       }
 
@@ -368,13 +379,14 @@ class UploadService {
       }
       if (reachTaskEnd && currentFile.prepared && tasks == 0) {
         const currentFile = this.files.get(this.current)!;
-        currentFile.onEnd();
-        if (!removeFile) {
+        if (removeCurrentFile) currentFile.onEnd(false);
+        if (!removeCurrentFile) {
+          currentFile.onEnd();
           this.uploaded += 1;
         }
         this.files.delete(this.current);
-        if (removeFile) {
-          message.error(t("TXT_CODE_c3adc044") + ": " + currentFile.file.name);
+        if (removeCurrentFile) {
+          if (removeFile) message.error(t("TXT_CODE_c3adc044") + ": " + currentFile.file.name);
         } else {
           message.success(currentFile.file.name + " " + t("TXT_CODE_773f36a0"));
         }
@@ -382,6 +394,7 @@ class UploadService {
           const current = this.files.keys().next().value ?? "";
           const currentFile = this.files.get(current)!;
           if (currentFile.removing) {
+            currentFile.onEnd(false);
             this.files.delete(current);
             continue;
           }

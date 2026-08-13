@@ -109,7 +109,8 @@ export class SetupDockerContainer extends AsyncTask {
     }
     if (!fs.existsSync(dockerHostWorkspace)) {
       const canCreateDockerHostWorkspace =
-        dockerHostWorkspace === instanceWorkspace || (await fs.pathExists(path.dirname(dockerHostWorkspace)));
+        dockerHostWorkspace === instanceWorkspace ||
+        (await fs.pathExists(path.dirname(dockerHostWorkspace)));
       if (canCreateDockerHostWorkspace) {
         await fs.mkdirs(dockerHostWorkspace);
       }
@@ -133,12 +134,8 @@ export class SetupDockerContainer extends AsyncTask {
           storageLimit: maxSpace
         })
       );
-    } else {
-      try {
-        await storageQuotaService.clearDockerHardQuotaIfManaged(instance, dockerHostWorkspace);
-      } catch (error: any) {
-        logger.warn(`Failed to clear hard storage quota: ${error?.message ?? error}`);
-      }
+    } else if (dockerConfig.storageQuotaProjectId) {
+      await storageQuotaService.deleteDockerHardQuotaIfManaged(instance, dockerHostWorkspace);
     }
 
     try {
