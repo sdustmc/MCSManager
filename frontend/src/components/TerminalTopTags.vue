@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { t } from "@/lang/i18n";
+import StorageQuotaStatus from "./StorageQuotaStatus.vue";
 import {
   ApartmentOutlined,
   BlockOutlined,
@@ -23,6 +24,7 @@ interface TerminalRuntimeInfo {
   networkStatsSource?: "docker";
   storageUsage?: number;
   storageLimit?: number;
+  storageQuota?: IStorageQuotaInfo;
 }
 
 interface PerfCardItem {
@@ -66,7 +68,7 @@ const formatTrafficUsage = (bytes?: number) =>
 
 const cards = computed<PerfCardItem[]>(() => {
   const info = props.info;
-  if (!info || props.isStopped) return [];
+  if (!info) return [];
 
   const {
     cpuUsage,
@@ -115,7 +117,7 @@ const cards = computed<PerfCardItem[]>(() => {
         }
       : null,
 
-    storageUsage
+    storageUsage != null && (!info.storageQuota || info.storageQuota.state === "disabled")
       ? {
           key: "disk",
           label: t("TXT_CODE_DISK_USAGE"),
@@ -152,11 +154,14 @@ const cards = computed<PerfCardItem[]>(() => {
       : null
   ];
 
-  return items.filter(Boolean) as PerfCardItem[];
+  return items.filter(
+    (item) => item && (!props.isStopped || item.key === "disk")
+  ) as PerfCardItem[];
 });
 </script>
 
 <template>
+  <StorageQuotaStatus :quota="info?.storageQuota" />
   <div v-if="cards.length > 0" class="perf-cards">
     <div
       v-for="card in cards"

@@ -2,13 +2,7 @@ import { ContainerInfo } from "dockerode";
 import DockerTakeoverCommand from "../entity/commands/docker/docker_takeover";
 import { DefaultDocker } from "./docker_service";
 import InstanceSubsystem from "./system_instance";
-
-async function killContainer(containerInfo: ContainerInfo) {
-  const docker = new DefaultDocker();
-  const container = docker.getContainer(containerInfo.Id);
-  container.kill().catch(() => {});
-  container.remove().catch(() => {});
-}
+import logger from "./log";
 
 export default async function takeoverContainer() {
   const docker = new DefaultDocker();
@@ -32,9 +26,7 @@ export default async function takeoverContainer() {
         await instance.forceExec(new DockerTakeoverCommand(container));
       }
     } catch (e) {
-      docker.getContainer(container.Id).kill();
-      killContainer(container);
-      throw e;
+      logger.error("Failed to attach an existing Docker container:", uuid, container.Id, e);
     }
   }
 }

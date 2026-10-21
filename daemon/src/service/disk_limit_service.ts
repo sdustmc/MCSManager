@@ -7,6 +7,8 @@ import { $t } from "../i18n";
 import { checkFilePath } from "../tools/filepath";
 import { ConsumerQueue } from "../utils/queue";
 import { sleep } from "../utils/sleep";
+import storageQuotaService from "./storage_quota_service";
+import logger from "./log";
 
 const execFilePromise = promisify(execFile);
 
@@ -25,7 +27,7 @@ class DiskLimitService {
 
   constructor() {
     this.task = setInterval(() => {
-      this.#startCheck();
+      this.#startCheck().catch((error) => logger.error("Disk usage check failed:", error));
     }, 1000 * 10);
   }
 
@@ -40,7 +42,7 @@ class DiskLimitService {
         maxSpace
       }
     });
-    this.#startCheck();
+    this.#startCheck().catch((error) => logger.error("Disk usage check failed:", error));
   }
 
   async #startCheck() {
@@ -87,6 +89,40 @@ class DiskLimitService {
 
   public async checkDiskNow(item: IDiskLimitItem, autoStop: boolean = true) {
     const { instance, workspace, maxSpace } = item;
+
+    if (instance.config.docker.enableHardStorageQuota) {
+      if (instance.info.storageQuota?.state === "applying")
+        return {
+          isFull: false,
+          storageLimit: maxSpace,
+          storageUsage: convertBytesToGB(instance.info.storageUsage ?? 0)
+        };
+      if (!instance.config.docker.storageQuotaProjectId) {
+        instance.info.storageQuota = { state: "unknown" };
+        return { isFull: false, storageLimit: maxSpace, storageUsage: 0 };
+      }
+      const previousQuota = instance.info.storageQuota;
+      const quota = await storageQuotaService.readUsage(instance);
+      if (instance.info.storageQuota !== previousQuota)
+        return {
+          isFull: false,
+          storageLimit: maxSpace,
+          storageUsage: convertBytesToGB(instance.info.storageUsage ?? 0)
+        };
+      if (quota.state !== "ready") throw new Error(quota.error || $t("TXT_CODE_QUOTA_NOT_APPLIED"));
+      instance.info.storageUsage = quota.usedBytes;
+      instance.info.storageLimit = quota.allocatedBytes;
+      if (previousQuota?.state !== "error") instance.info.storageQuota = quota;
+      const isFull =
+        (quota.usedBytes ?? 0) >= (quota.allocatedBytes ?? Infinity) ||
+        Boolean(quota.hardLimitInodes && (quota.usedInodes ?? 0) >= quota.hardLimitInodes);
+      if (autoStop && isFull) await this.#stopInstance(instance);
+      return {
+        isFull,
+        storageLimit: maxSpace,
+        storageUsage: convertBytesToGB(quota.usedBytes ?? 0)
+      };
+    }
 
     // global instance is not limited by disk space
     if (instance.isGlobalInstance() || workspace === "/" || workspace === "\\") {

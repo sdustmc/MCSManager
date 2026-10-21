@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import NodeRemoteMappingEdit from "@/components/NodeRemoteMappingEdit.vue";
+import StoragePoolsEditor from "@/components/StoragePoolsEditor.vue";
 import type { ComputedNodeInfo } from "@/hooks/useOverviewInfo";
 import { useRemoteNode } from "@/hooks/useRemoteNode";
 import { t } from "@/lang/i18n";
@@ -33,7 +34,8 @@ const DEFAULT_CONFIG = {
   outputBufferSize: 256,
   enableSoftShutdown: true,
   softShutdownSkipDocker: true,
-  softShutdownWaitSeconds: 10
+  softShutdownWaitSeconds: 10,
+  storagePools: [] as IStoragePoolConfig[]
 };
 
 const SPEED_RATE_OPTIONS = [
@@ -102,6 +104,7 @@ const openDialog = (data?: ComputedNodeInfo, uuid?: string) => {
       port: data.port, // connection port
       daemonPort: data.config?.port ?? 24444, // listen port
       apiKey: "",
+      storagePools: data.config?.storagePools || [],
       remoteMappings: data.remoteMappings ?? []
     };
   } else {
@@ -293,7 +296,13 @@ defineExpose({ openDialog });
                   <a-tooltip :title="t('TXT_CODE_daemon_outputBufferSizeInfo')" trigger="click">
                     <a-typography-text
                       type="secondary"
-                      style="display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer"
+                      style="
+                        display: block;
+                        white-space: nowrap;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        cursor: pointer;
+                      "
                     >
                       {{ t("TXT_CODE_daemon_outputBufferSizeInfo") }}
                     </a-typography-text>
@@ -303,7 +312,10 @@ defineExpose({ openDialog });
               </a-form-item>
             </a-col>
             <a-col :span="12">
-              <a-form-item :label="t('TXT_CODE_daemon_enableSoftShutdown')" name="enableSoftShutdown">
+              <a-form-item
+                :label="t('TXT_CODE_daemon_enableSoftShutdown')"
+                name="enableSoftShutdown"
+              >
                 <a-typography-paragraph>
                   <a-typography-text type="secondary">
                     {{ t("TXT_CODE_daemon_enableSoftShutdownInfo") }}
@@ -364,6 +376,13 @@ defineExpose({ openDialog });
             </a-card>
           </a-form-item>
         </a-form>
+      </a-tab-pane>
+      <a-tab-pane
+        v-if="daemonInfo?.available && editMode"
+        key="storage"
+        :tab="t('TXT_CODE_QUOTA_POOLS')"
+      >
+        <StoragePoolsEditor v-model:value="dialog.data.storagePools" :daemon-id="dialog.uuid" />
       </a-tab-pane>
     </a-tabs>
 

@@ -232,7 +232,7 @@ const userDialog = ref({
       } else {
         await editUserInfo().execute({
           data: {
-            config: formData.value,
+            config: _.omit(formData.value, "instances"),
             uuid: formData.value.uuid
           }
         });

@@ -179,7 +179,7 @@ export const addUser = useDefineApi<
 export const editUserInfo = useDefineApi<
   {
     data: {
-      config: EditUserInfo;
+      config: Partial<EditUserInfo>;
       uuid: string;
     };
   },
@@ -224,7 +224,8 @@ export const editNode = useDefineApi<
   any
 >({
   url: "/api/service/remote_service",
-  method: "PUT"
+  method: "PUT",
+  timeout: 70000
 });
 
 export const addNode = useDefineApi<

@@ -4,6 +4,8 @@ import logger from "../service/log";
 import { missionPassport } from "../service/mission_passport";
 import uploadManager from "../service/upload_manager";
 import { proxyIncomingMessage } from "../utils/speed_limit";
+import InstanceSubsystem from "../service/system_instance";
+import storageQuotaOperations from "../service/storage_quota_operation_service";
 
 export function isUploadRequest(ctx: Context) {
   const headers = ctx.request?.headers;
@@ -33,6 +35,10 @@ export async function uploadFileCheckMiddleware(ctx: Context, next: () => Promis
       const uploadMission = missionPassport.getMission(uploadKey, "upload");
 
       if (pieceWriter || uploadMission) {
+        const instance =
+          pieceWriter?.instance ||
+          InstanceSubsystem.getInstance(uploadMission?.parameter.instanceUuid);
+        if (instance) storageQuotaOperations.assertWritable(instance);
         return await next();
       } else {
         throw error;

@@ -127,6 +127,7 @@ export class SetupDockerContainer extends AsyncTask {
 
     const maxSpace = Number(dockerConfig.maxSpace || 0);
     if (dockerConfig.enableHardStorageQuota && Number.isFinite(maxSpace) && maxSpace > 0) {
+      await storageQuotaService.checkStoragePool(instance, InstanceSubsystem.getInstances());
       await storageQuotaService.ensureDockerHardQuota(instance, dockerHostWorkspace, maxSpace);
       instance.println(
         "INFO",
@@ -629,7 +630,13 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
       this.stream.on("error", (data) => this.emit("data", data));
       this.wait();
     } catch (error: any) {
-      this.kill();
+      if (!container) {
+        try {
+          await this.kill();
+        } catch (cleanupError) {
+          logger.error("Failed to clean up a new Docker container:", this.pid, cleanupError);
+        }
+      }
       throw error;
     }
   }
@@ -639,7 +646,12 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
   }
 
   public async kill(s?: string) {
-    await this.container?.kill();
+    try {
+      await this.container?.kill();
+    } catch (error: any) {
+      if (this.stream || error.statusCode !== 404) throw error;
+    }
+    if (!this.stream) this.emit("exit", 0);
     return true;
   }
 

@@ -241,6 +241,10 @@ export default class FileManager {
   async delete(target: string): Promise<boolean> {
     if (!this.check(target)) throw new Error(ERROR_MSG_01);
     const targetPath = this.toAbsolutePath(target);
+    if (path.normalize(targetPath) === path.normalize(this.topPath) && !this.isRootTopRath()) {
+      await fs.emptyDir(targetPath);
+      return true;
+    }
     return new Promise((r, j) => {
       fs.remove(targetPath, (err) => {
         if (!err) r(true);

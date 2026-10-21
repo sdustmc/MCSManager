@@ -20,6 +20,7 @@ class Config {
   public language = "en_us";
   public defaultInstancePath = "";
   public defaultJavaDataPath = "";
+  public storagePools: IStoragePoolConfig[] = [];
   public allocatablePortRange = [10010, 65500];
   public currentAllocatablePort = 10010;
   public portAssignInterval = 5;

@@ -15,6 +15,7 @@ import logger from "./service/log";
 import * as protocol from "./service/protocol";
 import * as router from "./service/router";
 import storageQuotaService from "./service/storage_quota_service";
+import storageQuotaOperations from "./service/storage_quota_operation_service";
 import InstanceSubsystem from "./service/system_instance";
 import "./service/system_visual_data";
 import uploadManager from "./service/upload_manager";
@@ -111,6 +112,7 @@ const io = new Server(httpServer, {
 // Initialize application instance system
 try {
   InstanceSubsystem.loadInstances();
+  storageQuotaOperations.initialize(() => InstanceSubsystem.getInstances());
   logger.info($t("TXT_CODE_app.instanceLoad", { n: InstanceSubsystem.getInstances().length }));
 } catch (err) {
   logger.error($t("TXT_CODE_app.instanceLoadError"), err);
@@ -171,6 +173,7 @@ async function listenExitSig(signal: string, isForce = true) {
   }
 
   try {
+    await storageQuotaOperations.dispose();
     if (isExiting) {
       // User interrupted the process, now force exit
       logger.warn($t("TXT_CODE_4ffdc91d", { signal }));

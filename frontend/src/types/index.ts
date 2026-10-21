@@ -43,6 +43,7 @@ export interface InstanceRuntimeInfo {
   memoryLimit?: number;
   storageUsage?: number;
   storageLimit?: number;
+  storageQuota?: IStorageQuotaInfo;
   allocatedPorts?: {
     host: string;
     container: number;

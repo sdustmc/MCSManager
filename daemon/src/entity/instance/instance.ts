@@ -46,6 +46,7 @@ interface IInstanceInfo {
   memoryLimit?: number;
   storageUsage?: number;
   storageLimit?: number;
+  storageQuota?: IStorageQuotaInfo;
   allocatedPorts?: { host: string; container: number; protocol: string }[];
 }
 
@@ -243,6 +244,10 @@ export default class Instance extends EventEmitter {
       configureEntityParams(this.config.docker, cfg.docker, "extraVolumes");
       configureEntityParams(this.config.docker, cfg.docker, "maxSpace", Number);
       configureEntityParams(this.config.docker, cfg.docker, "enableHardStorageQuota", Boolean);
+      configureEntityParams(this.config.docker, cfg.docker, "storageQuotaBufferPercent", Number);
+      configureEntityParams(this.config.docker, cfg.docker, "storageQuotaInodes", Number);
+      configureEntityParams(this.config.docker, cfg.docker, "storageQuotaWarningPercent", Number);
+      configureEntityParams(this.config.docker, cfg.docker, "storagePoolId", String);
       configureEntityParams(this.config.docker, cfg.docker, "io", Number);
       configureEntityParams(this.config.docker, cfg.docker, "network", Number);
       configureEntityParams(this.config.docker, cfg.docker, "networkMode", String);
@@ -293,6 +298,18 @@ export default class Instance extends EventEmitter {
       if (!this.config.basePort) this.allocatePort(this.config);
       StorageSubsystem.store("InstanceConfig", this.instanceUuid, this.config);
     }
+  }
+
+  public async restoreConfig(config: IGlobalInstanceConfig) {
+    const previous = this.config;
+    this.config = Object.assign(new InstanceConfig(), structuredClone(config));
+    const dispatchChanged =
+      previous.type !== this.config.type ||
+      previous.processType !== this.config.processType ||
+      previous.enableRcon !== this.config.enableRcon ||
+      previous.terminalOption?.pty !== this.config.terminalOption?.pty;
+    if (dispatchChanged) await this.forceExec(new FunctionDispatcher());
+    StorageSubsystem.store("InstanceConfig", this.instanceUuid, this.config);
   }
 
   allocatePort(cfg: InstanceConfig) {

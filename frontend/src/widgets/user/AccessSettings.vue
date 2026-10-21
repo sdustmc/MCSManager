@@ -95,6 +95,7 @@ const saveData = async () => {
     });
   } catch (err: any) {
     reportErrorMsg(err.message);
+    await refreshTableData().catch(reportErrorMsg);
   }
 };
 

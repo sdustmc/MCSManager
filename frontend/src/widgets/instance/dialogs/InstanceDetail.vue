@@ -14,6 +14,8 @@ import { useScreen } from "@/hooks/useScreen";
 import { isCN, t } from "@/lang/i18n";
 import { getNetworkModeList } from "@/services/apis/envImage";
 import { updateAnyInstanceConfig } from "@/services/apis/instance";
+import StorageQuotaSettings from "@/components/StorageQuotaSettings.vue";
+import { useStorageQuotaOperation } from "@/hooks/useStorageQuotaOperation";
 import { dockerPortsArray } from "@/tools/common";
 import { reportErrorMsg } from "@/tools/validator";
 import type { DockerNetworkModes, InstanceDetail, QuickStartPackages } from "@/types";
@@ -24,7 +26,7 @@ import { message } from "ant-design-vue";
 import type { Rule } from "ant-design-vue/es/form";
 import { Dayjs } from "dayjs";
 import _ from "lodash";
-import { computed, defineComponent, ref, unref } from "vue";
+import { computed, defineComponent, ref, unref, watch } from "vue";
 import { GLOBAL_INSTANCE_NAME } from "../../../config/const";
 import { dayjsToTimestamp, timestampToDayjs } from "../../../tools/time";
 import DockerImageSelect from "./components/DockerImageSelect.vue";
@@ -230,7 +232,12 @@ const addOption = (item: string, category: keyof typeof selectOptions.value) => 
 
 const networkModes = ref<DockerNetworkModes[]>([]);
 const { execute: executeGetNetworkModeList } = getNetworkModeList();
-const { execute, isLoading } = updateAnyInstanceConfig();
+const { execute, isLoading: requestLoading } = updateAnyInstanceConfig();
+const quotaOperation = useStorageQuotaOperation();
+const isLoading = computed(() => requestLoading.value || quotaOperation.running.value);
+watch(open, (value) => {
+  if (!value) quotaOperation.cancel();
+});
 
 const isGlobalTerminal = computed(() => {
   return props.instanceInfo?.config.nickname === GLOBAL_INSTANCE_NAME;
@@ -289,6 +296,8 @@ const loadNetworkModes = async () => {
 };
 
 const openDialog = async ({ item, i }: { item?: QuickStartPackages; i?: number } = {}) => {
+  quotaOperation.cancel();
+  quotaOperation.quota.value = undefined;
   if (item) {
     formData.value.template = _.cloneDeep(item);
     if (!formData.value.template.setupInfo?.docker)
@@ -327,13 +336,16 @@ const submit = async () => {
     } else {
       await formRef.value?.validate();
       const postData = encodeFormData();
-      await execute({
+      const result = await execute({
         params: {
           uuid: props.instanceId ?? "",
           daemonId: props.daemonId ?? ""
         },
         data: postData?.config!
       });
+      if (result.value?.storageQuotaStatus === "applying") {
+        await quotaOperation.wait(props.daemonId ?? "", props.instanceId ?? "");
+      }
       emit("update");
       open.value = false;
       return message.success(t("TXT_CODE_d3de39b4"));
@@ -1474,53 +1486,16 @@ defineExpose({
                 </a-form-item>
               </a-col>
 
-              <a-col :xs="24" :lg="8" :offset="0">
-                <a-form-item>
-                  <a-typography-title :level="5">
-                    {{ t("TXT_CODE_ca61b504") }}
-                    <a-tag color="blue">{{ t("TXT_CODE_33d7a685") }}</a-tag>
-                  </a-typography-title>
-                  <a-typography-paragraph>
-                    <a-tooltip :title="t('TXT_CODE_d86fbff5')" placement="top">
-                      <a-typography-text type="secondary" class="typography-text-ellipsis">
-                        {{ t("TXT_CODE_d86fbff5") }}
-                      </a-typography-text>
-                    </a-tooltip>
-                  </a-typography-paragraph>
-                  <a-input
-                    v-model:value="formData.instance.config.docker.maxSpace"
-                    :allow-clear="true"
-                    :placeholder="t('TXT_CODE_285cef0c')"
-                    suffix="GB"
-                  />
-                </a-form-item>
-              </a-col>
-
-              <a-col :xs="24" :lg="8" :offset="0">
-                <a-form-item>
-                  <a-typography-title :level="5">
-                    {{ t("TXT_CODE_storage_quota_hard_limit") }}
-                    <a-tag color="blue">{{ t("TXT_CODE_33d7a685") }}</a-tag>
-                  </a-typography-title>
-                  <a-typography-paragraph>
-                    <a-tooltip :title="t('TXT_CODE_storage_quota_hard_limit_help')" placement="top">
-                      <a-typography-text type="secondary" class="typography-text-ellipsis">
-                        {{ t("TXT_CODE_storage_quota_hard_limit_help") }}
-                      </a-typography-text>
-                    </a-tooltip>
-                  </a-typography-paragraph>
-                  <div class="ml-4">
-                    <a-switch
-                      v-model:checked="formData.instance.config.docker.enableHardStorageQuota"
-                      :disabled="isGlobalTerminal"
-                      :checked-value="true"
-                      :un-checked-value="false"
-                    >
-                      <template #checkedChildren><check-outlined /></template>
-                      <template #unCheckedChildren><close-outlined /></template>
-                    </a-switch>
-                  </div>
-                </a-form-item>
+              <a-col :span="24">
+                <StorageQuotaSettings
+                  v-model:value="formData.instance.config.docker"
+                  :daemon-id="props.daemonId"
+                  :instance-id="props.instanceId"
+                  :cwd="formData.instance.config.cwd"
+                  :process-type="formData.instance.config.processType"
+                  :quota="quotaOperation.quota.value || props.instanceInfo?.info?.storageQuota"
+                  :template-mode="isTemplateMode"
+                />
               </a-col>
 
               <a-col :xs="24" :lg="8" :offset="0">

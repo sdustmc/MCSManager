@@ -21,6 +21,7 @@ import { modService } from "../service/mod_service";
 import { ROLE } from "../service/protocol";
 import FileManager from "../service/system_file";
 import storageQuotaService from "../service/storage_quota_service";
+import storageQuotaOperations from "../service/storage_quota_operation_service";
 import uploadManager from "../service/upload_manager";
 
 // Some instances operate router authentication middleware
@@ -177,10 +178,14 @@ routerApp.on("instance/new", (ctx, data) => {
   const config = data;
   try {
     const newInstance = InstanceSubsystem.createInstance(config);
+    if (newInstance.config.docker.enableHardStorageQuota) {
+      storageQuotaOperations.update(newInstance, {}, InstanceSubsystem.getInstances());
+    }
     protocol.msg(ctx, "instance/new", {
       instanceUuid: newInstance.instanceUuid,
       config: newInstance.config,
-      nickname: newInstance.config.nickname
+      nickname: newInstance.config.nickname,
+      storageQuotaStatus: newInstance.config.docker.enableHardStorageQuota ? "applying" : undefined
     });
   } catch (err: any) {
     protocol.error(ctx, "instance/new", { instanceUuid: null, err: err.message });
@@ -194,6 +199,18 @@ routerApp.on("instance/update", async (ctx, data) => {
   try {
     const instance = InstanceSubsystem.getInstance(instanceUuid);
     if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    if (storageQuotaOperations.isApplying(instance)) throw new Error($t("TXT_CODE_QUOTA_BUSY"));
+    if (storageQuotaOperations.hasPendingRecovery(instance))
+      throw new Error($t("TXT_CODE_QUOTA_RECOVERY_REQUIRED"));
+    if (storageQuotaOperations.changesQuota(instance, config)) {
+      const result = storageQuotaOperations.update(
+        instance,
+        config,
+        InstanceSubsystem.getInstances()
+      );
+      protocol.msg(ctx, "instance/update", result);
+      return;
+    }
     const managedHardStorageQuota = Boolean(
       instance.config.docker.enableHardStorageQuota || instance.config.docker.storageQuotaProjectId
     );
@@ -222,6 +239,55 @@ routerApp.on("instance/update", async (ctx, data) => {
     protocol.msg(ctx, "instance/update", { instanceUuid });
   } catch (err: any) {
     protocol.error(ctx, "instance/update", { instanceUuid: instanceUuid, err: err.message });
+  }
+});
+
+routerApp.on("instance/storage_quota_wait", async (ctx, data) => {
+  try {
+    const instance = InstanceSubsystem.getInstance(String(data.instanceUuid));
+    if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    await storageQuotaOperations.wait(instance);
+    if (
+      storageQuotaOperations.hasPendingRecovery(instance) ||
+      !["ready", "disabled"].includes(instance.info.storageQuota?.state || "")
+    )
+      throw new Error(instance.info.storageQuota?.error || $t("TXT_CODE_QUOTA_ERROR"));
+    protocol.response(ctx, { instanceUuid: instance.instanceUuid, config: instance.config });
+  } catch (error: any) {
+    logger.error("Failed to wait for XFS quota:", data.instanceUuid, error);
+    protocol.error(ctx, "instance/storage_quota_wait", { err: error.message });
+  }
+});
+
+routerApp.on("instance/storage_quota_check", async (ctx, data) => {
+  try {
+    const instance = InstanceSubsystem.getInstance(String(data.instanceUuid));
+    if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    protocol.response(
+      ctx,
+      await storageQuotaOperations.check(
+        instance,
+        data.config || {},
+        InstanceSubsystem.getInstances()
+      )
+    );
+  } catch (error: any) {
+    logger.error("XFS quota preflight failed:", data.instanceUuid, error);
+    protocol.error(ctx, "instance/storage_quota_check", { err: error.message });
+  }
+});
+
+routerApp.on("instance/storage_quota_retry", (ctx, data) => {
+  try {
+    const instance = InstanceSubsystem.getInstance(String(data.instanceUuid));
+    if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    protocol.response(
+      ctx,
+      storageQuotaOperations.retry(instance, InstanceSubsystem.getInstances())
+    );
+  } catch (error: any) {
+    logger.error("Failed to schedule XFS quota recovery:", data.instanceUuid, error);
+    protocol.error(ctx, "instance/storage_quota_retry", { err: error.message });
   }
 });
 
@@ -582,6 +648,7 @@ routerApp.on("instance/process_config/file", (ctx, data) => {
       fromLink: null
     });
     if (config) {
+      storageQuotaOperations.assertWritable(instance);
       processConfig.write(config);
       return protocol.response(ctx, true);
     } else {
@@ -688,6 +755,9 @@ routerApp.on("instance/mods/delete", async (ctx, data) => {
 routerApp.on("instance/mods/install", async (ctx, data) => {
   const { instanceUuid, url, fileName, type, fallbackUrl } = data;
   try {
+    const instance = InstanceSubsystem.getInstance(instanceUuid);
+    if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    storageQuotaOperations.assertWritable(instance);
     // async
     modService.installMod(instanceUuid, url, fileName, type, {
       fallbackUrl

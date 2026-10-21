@@ -14,6 +14,7 @@ import uploadManager from "../service/upload_manager";
 import { clearUploadFiles } from "../tools/filepath";
 import { parseBooleanQuery } from "../tools/http_query";
 import { sendFile } from "../utils/speed_limit";
+import storageQuotaOperations from "../service/storage_quota_operation_service";
 
 const router = new Router();
 
@@ -64,13 +65,14 @@ router.post("/upload/:key", async (ctx) => {
   const zipCode = String(ctx.query.code);
   let tmpFiles: formidable.File | formidable.File[] | undefined;
   try {
+    tmpFiles = ctx.request.files?.file;
     const mission = missionPassport.getMission(key, "upload");
     if (!mission) throw new Error("Access denied: No task found");
     const instance = InstanceSubsystem.getInstance(mission.parameter.instanceUuid);
     if (!instance) throw new Error("Access denied: No instance found");
+    storageQuotaOperations.assertWritable(instance);
     const uploadDir = mission.parameter.uploadDir;
     const cwd = instance.absoluteCwdPath();
-    tmpFiles = ctx.request.files?.file;
     if (tmpFiles) {
       let uploadedFile: formidable.File;
       if (tmpFiles instanceof Array) {
@@ -170,6 +172,7 @@ router.post("/upload-new/:key", async (ctx) => {
     if (!mission) throw new Error("Access denied: No task found");
     const instance = InstanceSubsystem.getInstance(mission.parameter.instanceUuid);
     if (!instance) throw new Error("Access denied: No instance found");
+    storageQuotaOperations.assertWritable(instance);
     const uploadDir = mission.parameter.uploadDir;
     const cwd = instance.absoluteCwdPath();
     const overwrite = parseBooleanQuery(ctx.query.overwrite, true);

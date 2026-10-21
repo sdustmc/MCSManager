@@ -17,6 +17,7 @@ import { $t } from "../i18n";
 import { sleep } from "../utils/sleep";
 import logger from "./log";
 import storageQuotaService from "./storage_quota_service";
+import storageQuotaOperations from "./storage_quota_operation_service";
 import InstanceControl from "./system_instance_control";
 import takeoverContainer from "./takeover_container";
 
@@ -154,6 +155,9 @@ class InstanceSubsystem extends EventEmitter {
   }
 
   createInstance(cfg: any, persistence = true, uuid?: string) {
+    storageQuotaService.validateConfig(cfg.docker || {});
+    if (cfg.docker?.enableHardStorageQuota && cfg.processType !== "docker")
+      throw new Error($t("TXT_CODE_QUOTA_DOCKER_ONLY"));
     const newUuid = uuid || v4().replace(/-/gim, "");
     const instance = new Instance(newUuid, new InstanceConfig());
     if (this.instances.has(instance.instanceUuid)) {
@@ -163,6 +167,12 @@ class InstanceSubsystem extends EventEmitter {
       path.join("InstanceConfig", `${instance.instanceUuid}.json`)
     );
     // Instance working directory verification and automatic creation
+    if (cfg.docker?.storagePoolId) {
+      cfg.cwd = storageQuotaService.resolvePoolDirectory(
+        String(cfg.docker.storagePoolId),
+        instance.instanceUuid
+      );
+    }
     if (!cfg.cwd || cfg.cwd === ".") {
       cfg.cwd = path.normalize(`${this.instanceDataDir}/${instance.instanceUuid}`);
     }
@@ -185,7 +195,9 @@ class InstanceSubsystem extends EventEmitter {
           StorageSubsystem.delete("InstanceConfig", instance.instanceUuid);
       } catch (cleanupError: any) {
         logger.warn(
-          `Failed to rollback instance creation for ${instance.instanceUuid}: ${cleanupError?.message ?? cleanupError}`
+          `Failed to rollback instance creation for ${instance.instanceUuid}: ${
+            cleanupError?.message ?? cleanupError
+          }`
         );
       }
       throw error;
@@ -237,6 +249,9 @@ class InstanceSubsystem extends EventEmitter {
   async removeInstance(instanceUuid: string, deleteFile: boolean) {
     const instance = this.getInstance(instanceUuid);
     if (instance) {
+      if (storageQuotaOperations.isApplying(instance)) throw new Error($t("TXT_CODE_QUOTA_BUSY"));
+      if (storageQuotaOperations.hasPendingRecovery(instance))
+        throw new Error($t("TXT_CODE_QUOTA_RECOVERY_REQUIRED"));
       if (instance.status() !== Instance.STATUS_STOP) throw new Error($t("TXT_CODE_fb547313"));
       if (
         instance.config.docker.storageQuotaProjectId ||

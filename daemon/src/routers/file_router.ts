@@ -12,6 +12,7 @@ import { routerApp } from "../service/router";
 import InstanceSubsystem from "../service/system_instance";
 import uploadManager from "../service/upload_manager";
 import { checkSafeUrl } from "../utils/url";
+import storageQuotaOperations from "../service/storage_quota_operation_service";
 
 // Some routers operate router authentication middleware
 routerApp.use((event, ctx, data, next) => {
@@ -33,6 +34,15 @@ routerApp.use((event, ctx, data, next) => {
         instanceUuid: instanceUuid,
         err: $t("TXT_CODE_bbedcf29")
       });
+    }
+    if (!["file/list", "file/status", "file/download_from_url_stop"].includes(event)) {
+      try {
+        if (event === "file/delete" || (event === "file/edit" && data.text == null))
+          storageQuotaOperations.assertIdle(instance);
+        else storageQuotaOperations.assertWritable(instance);
+      } catch (error: any) {
+        return protocol.error(ctx, event, { instanceUuid, err: error.message });
+      }
     }
   }
   next();

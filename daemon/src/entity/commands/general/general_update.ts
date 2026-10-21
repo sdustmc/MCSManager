@@ -3,6 +3,7 @@ import { InstanceUpdateAction } from "../../../service/instance_update_action";
 import logger from "../../../service/log";
 import Instance from "../../instance/instance";
 import InstanceCommand from "../base/command";
+import storageQuotaOperations from "../../../service/storage_quota_operation_service";
 
 export default class GeneralUpdateCommand extends InstanceCommand {
   private updateTask?: InstanceUpdateAction;
@@ -22,6 +23,7 @@ export default class GeneralUpdateCommand extends InstanceCommand {
       return instance.failure(new Error($t("TXT_CODE_general_update.statusErr_notStop")));
     if (instance.asynchronousTask)
       return instance.failure(new Error($t("TXT_CODE_general_update.statusErr_otherProgress")));
+    storageQuotaOperations.assertWritable(instance);
 
     try {
       instance.setLock(true);

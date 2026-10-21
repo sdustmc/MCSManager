@@ -188,9 +188,7 @@ export default class DockerStatsTask implements ILifeCycleTask {
       networkStatsSource: undefined,
       memoryUsagePercent: undefined,
       readBytes: undefined,
-      writeBytes: undefined,
-      storageUsage: 0,
-      storageLimit: instance.config.docker?.maxSpace ?? 0
+      writeBytes: undefined
     };
   }
 }

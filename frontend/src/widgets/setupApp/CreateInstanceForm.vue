@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { getFileConfigAddr } from "@/hooks/useFileManager";
+import StorageQuotaSettings from "@/components/StorageQuotaSettings.vue";
 import { INSTANCE_TYPE_TRANSLATION, TYPE_MINECRAFT_BUNGEECORD } from "@/hooks/useInstance";
 import { QUICKSTART_ACTION_TYPE, QUICKSTART_METHOD } from "@/hooks/widgets/quickStartFlow";
+import { useStorageQuotaOperation } from "@/hooks/useStorageQuotaOperation";
 import { t } from "@/lang/i18n";
-import { createInstance as createInstanceApi, uploadAddress } from "@/services/apis/instance";
+import { createInstance as createInstanceApi } from "@/services/apis/instance";
+import { uploadAddress } from "@/services/apis/fileManager";
 import uploadService, { UploadFiles } from "@/services/uploadService";
 import { parseForwardAddress } from "@/tools/protocol";
 import { reportErrorMsg } from "@/tools/validator";
@@ -112,6 +115,7 @@ const finalConfirm = async () => {
 };
 
 const uploadStarted = ref(false);
+const { running: quotaApplying, wait: waitForQuota } = useStorageQuotaOperation();
 const uploadFileInstance = ref<UploadFiles>();
 let uploadStartCallback: (() => void) | undefined = undefined;
 let uploadEndCallback: ((success?: boolean) => void) | undefined = undefined;
@@ -131,6 +135,7 @@ const percentComplete = computed(() => {
 });
 
 const percentText = () => {
+  if (quotaApplying.value) return t("TXT_CODE_QUOTA_APPLYING");
   if (!uploadFileInstance.value) {
     return t("TXT_CODE_c17f6488");
   }
@@ -150,12 +155,13 @@ const selectedFile = async () => {
     if (formData.docker.image) formData.processType = "docker";
     if (isFileMode)
       formData.startCommand = formData.startCommand.replace("${ProgramName}", uFile.value!.name);
+    const instanceUuid = await createConfiguredInstance();
     await getCfg({
       params: {
         upload_dir: ".",
-        daemonId: props.daemonId
-      },
-      data: formData
+        daemonId: props.daemonId,
+        uuid: instanceUuid
+      }
     });
     if (!cfg.value) throw new Error(t("TXT_CODE_e8ce38c2"));
 
@@ -177,7 +183,6 @@ const selectedFile = async () => {
       }
     );
     uploadFileInstance.value = task;
-    const instanceUuid = cfg.value.instanceUuid;
     uploadEndCallback = (success = true) => {
       if (!success) return;
       emit("nextStep", instanceUuid);
@@ -195,17 +200,23 @@ const {
   execute: executeCreateInstance,
   isLoading: createInstanceLoading
 } = createInstanceApi();
+const createConfiguredInstance = async () => {
+  if (!formData.cwd) formData.cwd = ".";
+  if (formData.docker.image) formData.processType = "docker";
+  await executeCreateInstance({
+    params: { daemonId: props.daemonId },
+    data: formData
+  });
+  const created = newInstanceInfo.value;
+  if (!created) throw new Error(t("TXT_CODE_e8ce38c2"));
+  if (created.storageQuotaStatus === "applying")
+    await waitForQuota(props.daemonId, created.instanceUuid);
+  return created.instanceUuid;
+};
 const createInstance = async () => {
   try {
-    if (!formData.cwd) formData.cwd = ".";
-    if (formData.docker.image) formData.processType = "docker";
-    await executeCreateInstance({
-      params: {
-        daemonId: props.daemonId
-      },
-      data: formData
-    });
-    if (newInstanceInfo.value) emit("nextStep", newInstanceInfo.value.instanceUuid);
+    const instanceUuid = await createConfiguredInstance();
+    emit("nextStep", instanceUuid);
     return message.success(t("TXT_CODE_d28c05df"));
   } catch (err: any) {
     return reportErrorMsg(err.message);
@@ -414,6 +425,13 @@ const createInstance = async () => {
         </a-col>
       </a-row>
 
+      <StorageQuotaSettings
+        v-model:value="formData.docker"
+        :daemon-id="props.daemonId"
+        :cwd="formData.cwd"
+        :process-type="formData.docker.image ? 'docker' : 'general'"
+      />
+
       <a-form-item v-if="createMethod === QUICKSTART_METHOD.FILE">
         <a-typography-title :level="5" class="require-field">
           {{ t("TXT_CODE_444db70f") }}
@@ -430,7 +448,10 @@ const createInstance = async () => {
           :change="selectedFile"
           :disabled="percentComplete > 0"
         >
-          <a-button type="primary" :loading="percentComplete > 0">
+          <a-button
+            type="primary"
+            :loading="percentComplete > 0 || quotaApplying || createInstanceLoading"
+          >
             <upload-outlined v-if="percentComplete === 0" />
             {{
               percentComplete > 0
@@ -462,7 +483,12 @@ const createInstance = async () => {
           <a-button
             :disabled="!formData.nickname"
             type="primary"
-            :loading="percentComplete > 0 || uploadFileInstance != undefined"
+            :loading="
+              percentComplete > 0 ||
+              uploadFileInstance != undefined ||
+              quotaApplying ||
+              createInstanceLoading
+            "
           >
             <upload-outlined v-if="percentComplete == 0 && uploadFileInstance == undefined" />
             {{ percentText() }}
@@ -476,7 +502,11 @@ const createInstance = async () => {
             <span>{{ t("TXT_CODE_7da6e84") }}</span>
           </a-typography-text>
         </a-typography-paragraph>
-        <a-button type="primary" :loading="createInstanceLoading" @click="finalConfirm">
+        <a-button
+          type="primary"
+          :loading="createInstanceLoading || quotaApplying"
+          @click="finalConfirm"
+        >
           {{ t("TXT_CODE_5a74975b") }}
         </a-button>
       </a-form-item>

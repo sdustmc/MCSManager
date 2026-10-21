@@ -3,6 +3,7 @@ import { $t } from "../../../i18n";
 import { QuickInstallTask } from "../../../service/async_task_service/quick_install";
 import Instance from "../../instance/instance";
 import InstanceCommand from "../base/command";
+import storageQuotaOperations from "../../../service/storage_quota_operation_service";
 
 export default class GeneralInstallCommand extends InstanceCommand {
   private installTask?: QuickInstallTask;
@@ -23,13 +24,13 @@ export default class GeneralInstallCommand extends InstanceCommand {
     if (instance.asynchronousTask)
       return instance.failure(new Error($t("TXT_CODE_general_update.statusErr_otherProgress")));
     if (!params) throw new Error("GeneralInstallCommand: No params");
+    storageQuotaOperations.assertIdle(instance);
     try {
       instance.setLock(true);
       instance.status(Instance.STATUS_BUSY);
       instance.println($t("TXT_CODE_1704ea49"), $t("TXT_CODE_cbc235ad"));
       if (instance.hasCwdPath()) {
-        await fs.remove(instance.absoluteCwdPath());
-        await fs.mkdirs(instance.absoluteCwdPath());
+        await fs.emptyDir(instance.absoluteCwdPath());
       }
       instance.println($t("TXT_CODE_1704ea49"), $t("TXT_CODE_906c5d6a"));
 

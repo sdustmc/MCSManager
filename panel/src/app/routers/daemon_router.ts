@@ -9,6 +9,16 @@ import RemoteServiceSubsystem from "../service/remote_service";
 
 const router = new Router({ prefix: "/service" });
 
+router.get(
+  "/storage_pools",
+  permission({ level: ROLE.ADMIN }),
+  validator({ query: { daemonId: String } }),
+  async (ctx) => {
+    const daemon = RemoteServiceSubsystem.getInstance(String(ctx.query.daemonId));
+    ctx.body = await new RemoteRequest(daemon).request("info/storage_pools", {}, 60000);
+  }
+);
+
 // [Top-level Permission]
 // Get the list of remote services
 // Contains only service information, not a list of instance information
@@ -188,10 +198,14 @@ router.put(
     const daemon = RemoteServiceSubsystem.getInstance(uuid);
 
     if (daemonSetting && daemon?.available) {
-      await new RemoteRequest(daemon).request("info/setting", {
-        ...daemonSetting,
-        port: parameter.daemonPort
-      });
+      await new RemoteRequest(daemon).request(
+        "info/setting",
+        {
+          ...daemonSetting,
+          port: parameter.daemonPort
+        },
+        60000
+      );
     }
 
     if (!RemoteServiceSubsystem.services.has(uuid)) throw new Error("Instance does not exist");

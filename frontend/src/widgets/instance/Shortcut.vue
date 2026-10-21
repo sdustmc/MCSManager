@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import CardPanel from "@/components/CardPanel.vue";
+import StorageQuotaStatus from "@/components/StorageQuotaStatus.vue";
 import {
   openInstanceRemarksEditor,
   openInstanceTagsEditor,
@@ -376,7 +377,15 @@ const instanceOperations = computed(() =>
                 }}
               </span>
             </div>
-            <div v-if="instanceInfo?.info.storageUsage != null" class="instance-info-line">
+            <StorageQuotaStatus :quota="instanceInfo?.info.storageQuota" />
+            <div
+              v-if="
+                instanceInfo?.info.storageUsage != null &&
+                (!instanceInfo?.info.storageQuota ||
+                  instanceInfo.info.storageQuota.state === 'disabled')
+              "
+              class="instance-info-line"
+            >
               <span class="title">{{ t("TXT_CODE_DISK_USAGE") }}:</span>
               <span class="value">
                 {{

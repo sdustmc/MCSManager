@@ -8,7 +8,6 @@ import type {
   Schedule
 } from "@/types";
 
-
 export interface BatchDeleteInstanceResponse {
   instanceUuids: string[];
   instances: {
@@ -191,6 +190,7 @@ export const updateAnyInstanceConfig = useDefineApi<
   },
   {
     instanceUuid: string;
+    storageQuotaStatus?: "applying";
   }
 >({
   url: "/api/instance",
@@ -207,6 +207,7 @@ export const uploadAddress = useDefineApi<
   },
   {
     instanceUuid: string;
+    storageQuotaStatus?: "applying";
     password: string;
     addr: string;
     remoteMappings: RemoteMappingEntry[];
@@ -239,6 +240,7 @@ export const createInstance = useDefineApi<
   },
   {
     instanceUuid: string;
+    storageQuotaStatus?: "applying";
     config: IGlobalInstanceConfig;
   }
 >({

@@ -4,7 +4,7 @@ import Instance from "../../instance/instance";
 import { ILifeCycleTask } from "../../instance/life_cycle";
 
 const DEFAULT_DISK_CHECK_INTERVAL_MS = 1000 * 45;
-const HARD_QUOTA_DISK_CHECK_INTERVAL_MS = 1000 * 60 * 10;
+const HARD_QUOTA_DISK_CHECK_INTERVAL_MS = 1000 * 30;
 
 export default class InstanceDiskCheckTask implements ILifeCycleTask {
   public status: number = 0;
@@ -14,7 +14,8 @@ export default class InstanceDiskCheckTask implements ILifeCycleTask {
 
   async start(instance: Instance) {
     const interval =
-      instance.config.docker?.enableHardStorageQuota && Number(instance.config.docker?.maxSpace || 0) > 0
+      instance.config.docker?.enableHardStorageQuota &&
+      Number(instance.config.docker?.maxSpace || 0) > 0
         ? HARD_QUOTA_DISK_CHECK_INTERVAL_MS
         : DEFAULT_DISK_CHECK_INTERVAL_MS;
     this.task = setInterval(() => {
@@ -30,10 +31,6 @@ export default class InstanceDiskCheckTask implements ILifeCycleTask {
 
   async stop(instance: Instance) {
     clearInterval(this.task);
-    instance.info = {
-      ...instance.info,
-      storageUsage: 0,
-      storageLimit: instance.config.docker?.maxSpace ?? 0
-    };
+    this.task = null;
   }
 }

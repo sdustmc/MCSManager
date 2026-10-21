@@ -13,6 +13,7 @@ import { DockerManager } from "../service/docker_service";
 import logger from "../service/log";
 import VisualDataSubsystem from "../service/system_visual_data";
 import { getVersion } from "../service/version";
+import storageQuotaService from "../service/storage_quota_service";
 
 // Get the basic information of the daemon system
 routerApp.on("info/overview", async (ctx) => {
@@ -57,7 +58,8 @@ routerApp.on("info/overview", async (ctx) => {
       outputBufferSize: globalConfiguration.config.outputBufferSize,
       enableSoftShutdown: globalConfiguration.config.enableSoftShutdown,
       softShutdownSkipDocker: globalConfiguration.config.softShutdownSkipDocker,
-      softShutdownWaitSeconds: globalConfiguration.config.softShutdownWaitSeconds
+      softShutdownWaitSeconds: globalConfiguration.config.softShutdownWaitSeconds,
+      storagePools: globalConfiguration.config.storagePools || []
     },
     dockerPlatforms
   };
@@ -65,6 +67,19 @@ routerApp.on("info/overview", async (ctx) => {
 });
 
 routerApp.on("info/setting", async (ctx, data) => {
+  let storagePools: IStoragePoolConfig[] | undefined;
+  if (data.storagePools !== undefined) {
+    try {
+      storagePools = await storageQuotaService.validateStoragePools(
+        data.storagePools,
+        InstanceSubsystem.getInstances()
+      );
+    } catch (error: any) {
+      logger.error("Storage pool validation failed:", error);
+      protocol.error(ctx, "info/setting", { err: error.message });
+      return;
+    }
+  }
   const language = toText(data.language);
   const uploadSpeedRate = toNumber(data.uploadSpeedRate);
   const downloadSpeedRate = toNumber(data.downloadSpeedRate);
@@ -111,9 +126,26 @@ routerApp.on("info/setting", async (ctx, data) => {
   if (softShutdownSkipDocker != null) {
     globalConfiguration.config.softShutdownSkipDocker = softShutdownSkipDocker;
   }
-  if (softShutdownWaitSeconds != null && softShutdownWaitSeconds >= 1 && softShutdownWaitSeconds <= 600) {
+  if (
+    softShutdownWaitSeconds != null &&
+    softShutdownWaitSeconds >= 1 &&
+    softShutdownWaitSeconds <= 600
+  ) {
     globalConfiguration.config.softShutdownWaitSeconds = softShutdownWaitSeconds;
   }
+  if (storagePools) globalConfiguration.config.storagePools = storagePools;
   globalConfiguration.store();
   protocol.response(ctx, true);
+});
+
+routerApp.on("info/storage_pools", async (ctx) => {
+  try {
+    protocol.response(
+      ctx,
+      await storageQuotaService.listStoragePools(InstanceSubsystem.getInstances())
+    );
+  } catch (error: any) {
+    logger.error("Failed to list storage pools:", error);
+    protocol.error(ctx, "info/storage_pools", { err: error.message });
+  }
 });

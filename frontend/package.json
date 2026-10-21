@@ -10,8 +10,7 @@
     "test": "vitest run",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix --ignore-path .gitignore",
     "format": "prettier --write src/",
-    "analyze": "vite build --mode analyze",
-    "test": "vitest run"
+    "analyze": "vite build --mode analyze"
   },
   "dependencies": {
     "@ant-design/icons-vue": "^6.1.0",

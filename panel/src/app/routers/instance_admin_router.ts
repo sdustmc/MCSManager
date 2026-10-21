@@ -21,6 +21,35 @@ import { systemConfig } from "../setting";
 
 const router = new Router({ prefix: "/instance" });
 
+router.post(
+  "/storage_quota/check",
+  permission({ level: ROLE.ADMIN }),
+  validator({ query: { daemonId: String, uuid: String } }),
+  async (ctx) => {
+    const daemon = RemoteServiceSubsystem.getInstance(String(ctx.query.daemonId));
+    ctx.body = await new RemoteRequest(daemon).request(
+      "instance/storage_quota_check",
+      {
+        instanceUuid: String(ctx.query.uuid),
+        config: ctx.request.body
+      },
+      60000
+    );
+  }
+);
+
+router.post(
+  "/storage_quota/retry",
+  permission({ level: ROLE.ADMIN }),
+  validator({ query: { daemonId: String, uuid: String } }),
+  async (ctx) => {
+    const daemon = RemoteServiceSubsystem.getInstance(String(ctx.query.daemonId));
+    ctx.body = await new RemoteRequest(daemon).request("instance/storage_quota_retry", {
+      instanceUuid: String(ctx.query.uuid)
+    });
+  }
+);
+
 // [Low-level Permission]
 // Get the details of an instance
 router.get(
@@ -109,6 +138,7 @@ router.post(
       });
       ctx.body = {
         instanceUuid: newInstanceUuid,
+        storageQuotaStatus: result.storageQuotaStatus,
         password,
         addr,
         remoteMappings

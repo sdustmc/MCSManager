@@ -127,3 +127,10 @@ const errorMsgWithParams = $t("TXT_CODE_INSTANCE_ERROR", {
 - Prefer minimal, focused diffs and reuse existing utilities / services when possible.
 - Keep code and comments in English even if conversation language is different.
 
+## 7. Karpathy-Inspired Agent Guidelines
+
+- **Think before acting**: Inspect the relevant code and trace the real execution path. State assumptions that affect scope or behavior, and ask for clarification when different interpretations could lead to different results.
+- **Prefer simplicity**: Make the smallest change that solves the request. Avoid speculative features, abstractions, configurability, and dependencies.
+- **Make surgical changes**: Change only what the request requires. Match local conventions, avoid unrelated refactoring or formatting, and mention unrelated issues without changing them.
+- **Work toward verifiable goals**: Define how success can be observed before implementation. After changing something, use the narrowest suitable check and report what was verified.
+

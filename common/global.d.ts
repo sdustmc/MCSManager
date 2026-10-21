@@ -86,6 +86,10 @@ declare global {
     maxSpace?: number;
     enableHardStorageQuota?: boolean;
     storageQuotaProjectId?: number;
+    storageQuotaBufferPercent?: number;
+    storageQuotaInodes?: number;
+    storageQuotaWarningPercent?: number;
+    storagePoolId?: string;
     network?: number;
     io?: number;
     networkMode?: string;
@@ -188,8 +192,36 @@ declare global {
       enableSoftShutdown: boolean;
       softShutdownSkipDocker: boolean;
       softShutdownWaitSeconds: number;
+      storagePools?: IStoragePoolConfig[];
     };
     dockerPlatforms?: string[];
+  }
+
+  interface IStoragePoolConfig {
+    id: string;
+    name: string;
+    path: string;
+    reserveGiB: number;
+  }
+
+  interface IStoragePoolInfo extends IStoragePoolConfig {
+    totalBytes?: number;
+    availableBytes?: number;
+    allocatedBytes?: number;
+    allocatableBytes?: number;
+    error?: string;
+  }
+
+  interface IStorageQuotaInfo {
+    state: "disabled" | "applying" | "ready" | "error" | "unknown";
+    updatedAt?: number;
+    error?: string;
+    usedBytes?: number;
+    allocatedBytes?: number;
+    hardLimitBytes?: number;
+    usedInodes?: number;
+    hardLimitInodes?: number;
+    warning?: boolean;
   }
 
   interface IPanelOverviewResponse {

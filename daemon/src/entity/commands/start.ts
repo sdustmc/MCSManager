@@ -2,6 +2,7 @@ import fs from "fs-extra";
 import { $t } from "../../i18n";
 import disk_limit_service from "../../service/disk_limit_service";
 import storageQuotaService from "../../service/storage_quota_service";
+import storageQuotaOperations from "../../service/storage_quota_operation_service";
 import Instance from "../instance/instance";
 import InstanceCommand from "./base/command";
 
@@ -19,6 +20,10 @@ export default abstract class AbsStartCommand extends InstanceCommand {
   }
 
   async exec(instance: Instance) {
+    if (storageQuotaOperations.isApplying(instance))
+      return instance.failure(new StartupError($t("TXT_CODE_QUOTA_BUSY")));
+    if (storageQuotaOperations.hasPendingRecovery(instance))
+      return instance.failure(new StartupError($t("TXT_CODE_QUOTA_RECOVERY_REQUIRED")));
     if (instance.status() !== Instance.STATUS_STOP)
       return instance.failure(new StartupError($t("TXT_CODE_start.instanceNotDown")));
 
@@ -26,6 +31,14 @@ export default abstract class AbsStartCommand extends InstanceCommand {
     if (!fs.existsSync(instance.absoluteCwdPath())) {
       await fs.mkdirs(instance.absoluteCwdPath());
     }
+
+    // Directory creation may have yielded to a quota update or another start request.
+    if (storageQuotaOperations.isApplying(instance))
+      return instance.failure(new StartupError($t("TXT_CODE_QUOTA_BUSY")));
+    if (storageQuotaOperations.hasPendingRecovery(instance))
+      return instance.failure(new StartupError($t("TXT_CODE_QUOTA_RECOVERY_REQUIRED")));
+    if (instance.status() !== Instance.STATUS_STOP)
+      return instance.failure(new StartupError($t("TXT_CODE_start.instanceNotDown")));
 
     try {
       instance.setLock(true);
@@ -62,13 +75,10 @@ export default abstract class AbsStartCommand extends InstanceCommand {
         );
         if (result?.isFull) {
           throw new StartupError(
-            $t(
-              "TXT_CODE_e5938389",
-              {
-                storageLimit: result?.storageLimit,
-                storageUsage: result?.storageUsage
-              }
-            )
+            $t("TXT_CODE_e5938389", {
+              storageLimit: result?.storageLimit,
+              storageUsage: result?.storageUsage
+            })
           );
         } else {
           instance.println(

@@ -38,6 +38,10 @@ describe("createPortableTemplateFromInstance", () => {
       privileged: true,
       networkMode: "host",
       storageQuotaProjectId: 200000,
+      storagePoolId: "private-pool",
+      storageQuotaBufferPercent: 5,
+      storageQuotaInodes: 10000,
+      storageQuotaWarningPercent: 90,
       enableHardStorageQuota: true,
       gpuEnabled: true,
       gpuDeviceIds: ["GPU-private"]
@@ -77,10 +81,14 @@ describe("createPortableTemplateFromInstance", () => {
       privileged: false,
       networkMode: "bridge",
       enableHardStorageQuota: false,
+      storageQuotaBufferPercent: 5,
+      storageQuotaInodes: 10000,
+      storageQuotaWarningPercent: 90,
       gpuEnabled: false,
       gpuDeviceIds: []
     });
     expect(template.setupInfo.docker.storageQuotaProjectId).toBeUndefined();
+    expect(template.setupInfo.docker.storagePoolId).toBeUndefined();
   });
 
   it("rejects non-Docker instances", () => {

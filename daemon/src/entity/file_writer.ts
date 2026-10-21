@@ -11,6 +11,7 @@ import { selectArchiveOwnershipTargets } from "../service/upload_ownership_utils
 import { addChunkRange, type ChunkRange, isChunkRangeFullyCovered } from "../tools/chunk_range";
 import { globalConfiguration, globalEnv } from "./config";
 import Instance from "./instance/instance";
+import storageQuotaOperations from "../service/storage_quota_operation_service";
 
 export default class FileWriter {
   readonly path: string;
@@ -94,6 +95,7 @@ export default class FileWriter {
   }
 
   async init() {
+    storageQuotaOperations.assertWritable(this.instance);
     if (this.fd != null) return;
     try {
       const fileManager = new FileManager(this.cwd);
@@ -114,6 +116,9 @@ export default class FileWriter {
   }
 
   async write(offset: number, chunk: Buffer) {
+    storageQuotaOperations.assertWritable(this.instance);
+    if (this.cwd !== this.instance.absoluteCwdPath())
+      throw new Error($t("TXT_CODE_system_file.illegalAccess"));
     this.lastUpdate = Date.now();
     if (this.completion) return await this.completion;
     if (!Number.isSafeInteger(offset) || offset < 0) {

@@ -13,6 +13,8 @@ import { InstanceUpdateAction } from "../instance_update_action";
 import logger from "../log";
 import InstanceSubsystem from "../system_instance";
 import { AsyncTask, IAsyncTaskJSON, TaskCenter } from "./index";
+import storageQuotaService from "../storage_quota_service";
+import storageQuotaOperations from "../storage_quota_operation_service";
 
 export class QuickInstallTask extends AsyncTask {
   public static TYPE = "QuickInstallTask";
@@ -51,6 +53,10 @@ export class QuickInstallTask extends AsyncTask {
     config.stopCommand = "^c";
     if (!curInstance) {
       config.cwd = "";
+      if (buildParams?.docker?.enableHardStorageQuota || buildParams?.docker?.storagePoolId) {
+        config.processType = buildParams.processType;
+        config.docker = { ...config.docker, ...buildParams.docker };
+      }
       this.instance = InstanceSubsystem.createInstance(config);
       this.isInitInstance = true;
     } else {
@@ -160,7 +166,32 @@ export class QuickInstallTask extends AsyncTask {
     this.instance.println("INFO", `Download "${this.targetLink}" success!!!`);
   }
 
+  private async prepareQuota(reinitialize = false) {
+    if (!this.instance.config.docker.enableHardStorageQuota) return;
+    this.instance.info.storageQuota = { state: "applying" };
+    try {
+      if (this.instance.config.processType !== "docker")
+        throw new Error($t("TXT_CODE_QUOTA_DOCKER_ONLY"));
+      await storageQuotaService.ensureDockerHardQuota(
+        this.instance,
+        storageQuotaService.resolveDockerDiskWorkspace(this.instance),
+        Number(this.instance.config.docker.maxSpace),
+        { reinitialize }
+      );
+      const quota = await storageQuotaService.readUsage(this.instance, true);
+      if (quota.state !== "ready")
+        throw new Error(quota.error || $t("TXT_CODE_QUOTA_VERIFY_FAILED"));
+      this.instance.info.storageQuota = quota;
+      this.instance.info.storageUsage = quota.usedBytes;
+      this.instance.info.storageLimit = quota.allocatedBytes;
+    } catch (error: any) {
+      this.instance.info.storageQuota = { state: "error", error: error.message };
+      throw error;
+    }
+  }
+
   async onStart() {
+    storageQuotaOperations.assertIdle(this.instance);
     this.instance.print("\n");
     if (
       this.instance.config.processType === "docker" &&
@@ -183,6 +214,7 @@ export class QuickInstallTask extends AsyncTask {
         this.instance.asynchronousTask = this;
       }
 
+      await this.prepareQuota(true);
       if (this.targetLink) {
         await this.download();
         this.instance.println("INFO", $t("TXT_CODE_e4a926bf"));
@@ -214,6 +246,7 @@ export class QuickInstallTask extends AsyncTask {
 
       this.instance.resetConfigWithoutDocker();
       this.instance.parameters(config, true);
+      await this.prepareQuota();
 
       this.instance.println("INFO", $t("TXT_CODE_4eccdde8"));
 
