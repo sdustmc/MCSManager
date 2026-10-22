@@ -81,13 +81,13 @@ jobs:
           zip -r mcsmanager_windows_daemon_only_release.zip mcsmanager/ -x "mcsmanager/web/*"
 
       - name: Upload assets to release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: |
-            mcsmanager_windows_release.zip
-            mcsmanager_windows_web_only_release.zip
-            mcsmanager_windows_daemon_only_release.zip
-            mcsmanager_linux_release.tar.gz
-            mcsmanager_linux_web_only_release.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            mcsmanager_windows_release.zip \
+            mcsmanager_windows_web_only_release.zip \
+            mcsmanager_windows_daemon_only_release.zip \
+            mcsmanager_linux_release.tar.gz \
+            mcsmanager_linux_web_only_release.tar.gz \
             mcsmanager_linux_daemon_only_release.tar.gz
