@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const { PassThrough } = require("node:stream");
 const { test, beforeEach, afterEach, mock } = require("node:test");
 const ctx = require("./helpers/quota_context");
 const { Instance, InstanceConfig, Dispatcher, routerApp, httpRouter } =
@@ -129,6 +130,161 @@ test("failure to connect to an existing container never kills it", async () => {
   assert.equal(killed, false);
 });
 
+test("a failed kill and unavailable Docker API do not mark a live container as stopped", async () => {
+  const stream = new PassThrough();
+  let onWait;
+  const container = {
+    id: "unreachable",
+    modem: { dial: (_, callback) => callback(null, stream) },
+    wait: (callback) => {
+      onWait = callback;
+    },
+    kill: async () => {
+      throw new Error("Docker connection lost");
+    },
+    inspect: async () => {
+      throw new Error("Docker connection lost");
+    },
+    remove: async () => {}
+  };
+  const adapter = new DockerProcessAdapter(new SetupDockerContainer(instance("kill-failed")));
+  const exits = [];
+  adapter.on("exit", (code) => exits.push(code));
+  try {
+    await adapter.start({ isTty: false, h: 24, w: 80 }, container);
+    await assert.rejects(adapter.kill(), /Docker connection lost/);
+    onWait(new Error("Docker connection lost"));
+    await new Promise(setImmediate);
+
+    assert.deepEqual(exits, []);
+  } finally {
+    await adapter.destroy();
+  }
+});
+
+test("a container removed outside the daemon emits exit after its wait request fails", async () => {
+  const stream = new PassThrough();
+  let onWait;
+  const missing = Object.assign(new Error("No such container"), { statusCode: 404 });
+  const container = {
+    id: "removed",
+    modem: { dial: (_, callback) => callback(null, stream) },
+    wait: (callback) => {
+      onWait = callback;
+    },
+    inspect: async () => {
+      throw missing;
+    },
+    remove: async () => {
+      throw missing;
+    }
+  };
+  const adapter = new DockerProcessAdapter(new SetupDockerContainer(instance("removed")));
+  const exits = [];
+  adapter.on("exit", (code) => exits.push(code));
+  try {
+    await adapter.start({ isTty: false, h: 24, w: 80 }, container);
+    onWait(missing);
+    await new Promise(setImmediate);
+
+    assert.deepEqual(exits, [0]);
+  } finally {
+    await adapter.destroy();
+  }
+});
+
+test("a failed in-flight kill resumes console recovery after transport loss", async () => {
+  let stream;
+  let onWait;
+  let rejectKill;
+  let killing;
+  let attachments = 0;
+  const container = {
+    id: "retry-kill",
+    modem: {
+      dial(_, callback) {
+        attachments++;
+        stream = new PassThrough();
+        callback(null, stream);
+      }
+    },
+    wait: (callback) => {
+      onWait = callback;
+    },
+    kill: () =>
+      new Promise((_, reject) => {
+        rejectKill = reject;
+      }),
+    inspect: async () => {
+      throw new Error("Docker connection lost");
+    },
+    remove: async () => {}
+  };
+  const adapter = new DockerProcessAdapter(new SetupDockerContainer(instance("retry-kill")));
+  const exits = [];
+  adapter.on("exit", (code) => exits.push(code));
+  try {
+    await adapter.start({ isTty: false, h: 24, w: 80 }, container);
+    killing = assert.rejects(adapter.kill(), /Docker connection lost/);
+    stream.emit("close");
+    onWait(new Error("Docker connection lost"));
+    await new Promise(setImmediate);
+    assert.deepEqual(exits, []);
+
+    rejectKill(new Error("Docker connection lost"));
+    await killing;
+    const deadline = Date.now() + 5000;
+    while (attachments < 2 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(attachments, 2);
+  } finally {
+    rejectKill?.(new Error("Docker connection lost"));
+    await killing;
+    await adapter.destroy();
+  }
+});
+
+test("a container removed during a Docker outage exits when reattaching returns 404", async () => {
+  const stream = new PassThrough();
+  const missing = Object.assign(new Error("No such container"), { statusCode: 404 });
+  let attachments = 0;
+  let onWait;
+  const container = {
+    id: "removed-during-outage",
+    modem: {
+      dial(_, callback) {
+        callback(attachments++ === 0 ? null : missing, stream);
+      }
+    },
+    wait: (callback) => {
+      onWait = callback;
+    },
+    inspect: async () => {
+      throw new Error("Docker connection lost");
+    },
+    remove: async () => {
+      throw missing;
+    }
+  };
+  const adapter = new DockerProcessAdapter(new SetupDockerContainer(instance("outage-removed")));
+  const exits = [];
+  adapter.on("exit", (code) => exits.push(code));
+  try {
+    await adapter.start({ isTty: false, h: 24, w: 80 }, container);
+    stream.emit("close");
+    onWait(new Error("Docker connection lost"));
+    const deadline = Date.now() + 5000;
+    while (exits.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    assert.deepEqual(exits, [0]);
+  } finally {
+    await adapter.destroy();
+  }
+});
+
 test("expired containers remain subject to expiry after takeover establishes control", async () => {
   const item = instance("expired");
   item.config.endTime = Date.now() - 1;
@@ -169,6 +325,15 @@ test("deleting the file-manager root preserves the quota directory inode", async
   await new FileManager(item.config.cwd).delete(".");
   assert.equal(fs.statSync(item.config.cwd).ino, inode);
   assert.deepEqual(fs.readdirSync(item.config.cwd), []);
+});
+
+test("ignoring a missing workspace during deletion does not recreate its quota root", async () => {
+  const item = instance("missing-root");
+  fs.rmSync(item.config.cwd, { recursive: true });
+
+  await new FileManager(item.config.cwd).delete(".", { ignoreMissing: true });
+
+  assert.equal(fs.existsSync(item.config.cwd), false);
 });
 
 test("reinstallation cannot discard files while a quota recovery record exists", async () => {

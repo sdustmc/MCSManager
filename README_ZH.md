@@ -8,7 +8,7 @@
 
 [![--](https://img.shields.io/badge/Support-Windows/Linux-green.svg)](https://github.com/MCSManager)
 [![Status](https://img.shields.io/badge/npm-v8.9.14-blue.svg)](https://www.npmjs.com/)
-[![Status](https://img.shields.io/badge/node-v16.20.2-blue.svg)](https://nodejs.org/en/download/)
+[![Status](https://img.shields.io/badge/node-20.19%2B-blue.svg)](https://nodejs.org/en/download/)
 [![Status](https://img.shields.io/badge/License-Apache%202.0-red.svg)](https://github.com/MCSManager)
 
 <p align="center">
@@ -30,9 +30,16 @@
 
 **MCSManager 面板**（简称：MCSM 面板），是一个快速部署，支持分布式架构，支持多用户，简单易用和现代化的 Minecraft、Steam 和其他游戏服务器 Web 管理面板。
 
-MCSManager 在 `Minecraft` 和 `Steam` 游戏社区内中已有一定的流行程度，它可以帮助你集中管理多个物理服务器，实现在任何主机上创建游戏服务器，并且提供安全可靠的多用户权限系统，可以很轻松的帮助你管理多个服务器，一直在为 `Minecraft`，`Terraria` 和 `Steam` 游戏服务器的管理员，运维人员和个人开发者提供健康的软件支持。
+MCSManager 在 `Minecraft` 和 `Steam` 游戏社区内中已有一定的流行程度，它可以帮助你集中管理多个物理服务器，实现在任何主机上创建游戏服务器，并且提供安全可靠的多用户权限系统，可以很轻松的帮助你管理多个服务器，一直在为 `Minecraft`，`Terraria` 和 `Steam` 游戏服务器的管理员，运维人员和个人开发者提
+供健康的软件支持。
 
-MCSM 同样也考虑了**商业应用**，例如由 **IDC 服务提供商**进行的私有服务器托管和销售。多家中小型企业已经将此面板用作**服务器管理**和**销售平台**的结合。此外，它支持**多语言环境**，使其可供不同国家和地区的用户访问。
+**核心功能：**
+
+1. 管理员能基于各类模板（或 Docker 镜像）创建 Minecraft、Steam 等游戏服务器（或其他任何程序），服务器支持运行在 Docker 容器或直接以进程的方式运行，并且在 Web 网页上访问其终端。
+
+2. 管理员可以创建普通用户，同时将实例分配给普通用户，控制面板通过Docker容器和文件权限检查等各种手段，实现普通用户只能访问已分配的实例，尽可能的确保宿主机的安全。
+
+MCSM 考虑了**商业应用**方面的需求，例如由 **IDC 服务提供商**进行的私有服务器托管和销售。多家中小型企业已经将此面板用作**服务器管理**和**销售平台**的结合。此外，它支持**多语言环境**，使其可供不同国家和地区的用户访问。
 
 <img width="3164" height="2060" alt="1" src="https://github.com/user-attachments/assets/570d2447-66dc-4c0b-b2d2-4c3176b51d67" />
 
@@ -60,7 +67,7 @@ MCSM 同样也考虑了**商业应用**，例如由 **IDC 服务提供商**进�
 
 控制面板可运行在 `Windows` 与 `Linux` 平台，无需安装数据库，只需安装 `Node.js` 环境和几个**用于解压缩**的命令。
 
-必须使用 [Node.js 16.20.2](https://nodejs.org/en) 以上，推荐使用最新版本 LTS 版本。
+必须使用 [Node.js](https://nodejs.org/en) `^20.19.0 || ^22.12.0 || >=23.0.0`，以支持 SSO 的 ESM 依赖。
 
 <br />
 
@@ -112,13 +119,13 @@ systemctl disable mcsm-web #禁用面板端，适用于被控主机
 ```bash
 # 切换到安装目录。如果不存在，请提前用'mkdir /opt/'创建它。
 cd /opt/
-# 下载运行时环境（Node.js）。如果你已经安装了Node.js 16+，请忽略此步骤。
-wget https://nodejs.org/dist/v20.11.0/node-v20.11.0-linux-x64.tar.xz
+# Install a supported Node.js runtime if needed.
+wget https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz
 # 解压档案
-tar -xvf node-v20.11.0-linux-x64.tar.xz
+tar -xvf node-v24.22.1-linux-x64.tar.xz
 # 添加程序到系统环境变量。
-ln -s /opt/node-v20.11.0-linux-x64/bin/node /usr/bin/node
-ln -s /opt/node-v20.11.0-linux-x64/bin/npm /usr/bin/npm
+ln -s /opt/node-v24.22.1-linux-x64/bin/node /usr/bin/node
+ln -s /opt/node-v24.22.1-linux-x64/bin/npm /usr/bin/npm
 
 # 准备好安装目录。
 mkdir /opt/mcsmanager/

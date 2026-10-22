@@ -47,13 +47,12 @@ router.get("/download/:key/:fileName", async (ctx) => {
 
     const fileAbsPath = fileManager.toAbsolutePath(fileRelativePath);
     await sendFile(ctx, fileAbsPath);
+    missionPassport.deleteMission(key, "download");
   } catch (error: any) {
     if (!ctx.res.headersSent) {
       ctx.body = $t("TXT_CODE_http_router.downloadErr", { error: error.message });
       ctx.status = 500;
     }
-  } finally {
-    missionPassport.deleteMission(key);
   }
 });
 
@@ -130,6 +129,7 @@ router.post("/upload/:key", async (ctx) => {
       } else {
         await applyDockerRunAsOwnership(instance, [fileSaveAbsolutePath]);
       }
+      missionPassport.deleteMission(key, "upload");
       ctx.body = "OK";
       return;
     }
@@ -139,7 +139,6 @@ router.post("/upload/:key", async (ctx) => {
     ctx.body = error.message;
     ctx.status = 500;
   } finally {
-    missionPassport.deleteMission(key);
     if (tmpFiles) clearUploadFiles(tmpFiles);
   }
 });
@@ -206,6 +205,7 @@ router.post("/upload-new/:key", async (ctx) => {
       }
     }
     if (fr.writer.isFullyReceived()) await fr.writer.done();
+    missionPassport.deleteMission(key, "upload");
 
     ctx.body = {
       data: {
@@ -218,8 +218,6 @@ router.post("/upload-new/:key", async (ctx) => {
   } catch (error: any) {
     ctx.body = error.message;
     ctx.status = 500;
-  } finally {
-    missionPassport.deleteMission(key);
   }
 });
 

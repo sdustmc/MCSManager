@@ -35,6 +35,11 @@ export class UserSubsystem {
   }
 
   async create(config: IUser): Promise<User> {
+    // Central username format guard for every creation path (panel install,
+    // admin create, exchange/SSO). Rejects control characters (log/audit
+    // injection), blank names and absurd lengths; unicode stays allowed.
+    if (!this.validateUserName(config.userName))
+      throw new Error($t("TXT_CODE_router.user.invalidUserName"));
     const newUuid = v4().replace(/-/gim, "");
     // Initialize necessary user data
     const instance = new User();
@@ -57,15 +62,26 @@ export class UserSubsystem {
       const instance = this.getInstance(uuid);
       if (!instance) return;
       const nextUser = Object.assign(new User(), instance);
-      if (config.userName) nextUser.userName = config.userName;
+      if (config.userName) {
+        if (config.userName !== instance.userName && !this.validateUserName(config.userName))
+          throw new Error($t("TXT_CODE_router.user.invalidUserName"));
+        nextUser.userName = config.userName;
+      }
       if (config.isInit != null) nextUser.isInit = Boolean(config.isInit);
-      if (config.permission != null) nextUser.permission = Number(config.permission);
+      if (
+        config.permission != null &&
+        typeof config.permission !== "boolean" &&
+        config.permission !== "" &&
+        Number.isFinite(Number(config.permission))
+      )
+        nextUser.permission = Number(config.permission);
       if (config.registerTime) nextUser.registerTime = config.registerTime;
       if (config.loginTime) nextUser.loginTime = config.loginTime;
-      if (config.apiKey != null) nextUser.apiKey = config.apiKey;
-      if (config.secret != null) nextUser.secret = String(config.secret);
+      const isMasked = (value: unknown) => value === "__MCSM_SECRET_DATA__";
+      if (config.apiKey != null && !isMasked(config.apiKey)) nextUser.apiKey = config.apiKey;
+      if (config.secret != null && !isMasked(config.secret)) nextUser.secret = String(config.secret);
       if (config.open2FA != null) nextUser.open2FA = Boolean(config.open2FA);
-      if (config.ssoSub != null) nextUser.ssoSub = String(config.ssoSub);
+      if (config.ssoSub != null && !isMasked(config.ssoSub)) nextUser.ssoSub = String(config.ssoSub);
       if (config.ssoBound != null) nextUser.ssoBound = Boolean(config.ssoBound);
 
       const assignmentsChanged =
@@ -98,6 +114,17 @@ export class UserSubsystem {
     if (password.length < 9 || password.length > 36) return false;
     const reg = /(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])/;
     return reg.test(password);
+  }
+
+  // Username format guard: 1-64 chars, no ASCII control characters
+  // (incl. \n/\r/\t - prevents log & audit-log line injection), not blank.
+  // Unicode letters (e.g. Chinese) are explicitly allowed.
+  validateUserName(userName?: string) {
+    if (typeof userName !== "string") return false;
+    if (userName.length < 1 || userName.length > 64) return false;
+    if (/[\u0000-\u001f\u007f]/.test(userName)) return false;
+    if (userName.trim().length === 0) return false;
+    return true;
   }
 
   check2FA(code: string, user: IUser, totpDriftToleranceSteps: number = 0) {

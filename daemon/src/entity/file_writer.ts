@@ -22,6 +22,10 @@ export default class FileWriter {
   private completion?: Promise<void>;
   private completionFailed = false;
   private fileTaskReserved = false;
+  private pendingWrites = new Set<Promise<void>>();
+  private stopPromise?: Promise<void>;
+  private stopping = false;
+  private ownsFile = false;
   readonly received: ChunkRange[] = [];
   lastUpdate: number = Date.now();
 
@@ -87,7 +91,7 @@ export default class FileWriter {
   }
 
   isFullyReceived(): boolean {
-    return isChunkRangeFullyCovered(this.received, this.size);
+    return this.size === 0 || isChunkRangeFullyCovered(this.received, this.size);
   }
 
   hasFailed(): boolean {
@@ -104,6 +108,7 @@ export default class FileWriter {
       );
       this.fd = lockedFile.fd;
       this.releaseLock = lockedFile.releaseLock;
+      this.ownsFile = true;
     } catch (error: any) {
       if (error?.code === "ELOCKED") {
         throw new Error($t("TXT_CODE_http_router.fileLocked"));
@@ -117,23 +122,60 @@ export default class FileWriter {
 
   async write(offset: number, chunk: Buffer) {
     storageQuotaOperations.assertWritable(this.instance);
+    if (this.stopping) throw new Error($t("TXT_CODE_http_router.fileNotOpen"));
+    if (this.completion) return await this.completion;
+    const operation = this.writeChunk(offset, chunk);
+    this.pendingWrites.add(operation);
+    operation.catch(() => {
+      this.stopping = true;
+      this.completionFailed = true;
+    });
+    try {
+      await operation;
+    } catch (error) {
+      this.pendingWrites.delete(operation);
+      try {
+        await this.stop();
+      } catch (cleanupError) {
+        logger.error("Error cleaning failed file upload:", this.path, cleanupError);
+      }
+      throw error;
+    } finally {
+      this.pendingWrites.delete(operation);
+    }
+    if (!this.stopping && this.isFullyReceived()) await this.done();
+  }
+
+  private async writeChunk(offset: number, chunk: Buffer) {
     if (this.cwd !== this.instance.absoluteCwdPath())
       throw new Error($t("TXT_CODE_system_file.illegalAccess"));
     this.lastUpdate = Date.now();
-    if (this.completion) return await this.completion;
     if (!Number.isSafeInteger(offset) || offset < 0) {
       throw new Error($t("TXT_CODE_http_router.invalidUploadOffset"));
     }
     if (offset > this.size - chunk.length) {
       throw new Error($t("TXT_CODE_http_router.uploadExceedsSize"));
     }
-    if (this.fd === null) throw new Error("File is not opened");
-    await fs.write(this.fd, chunk, 0, chunk.length, offset);
+    if (this.stopping || this.fd === null)
+      throw new Error($t("TXT_CODE_http_router.fileNotOpen"));
+    let written = 0;
+    while (written < chunk.length) {
+      const result = await fs.write(
+        this.fd,
+        chunk,
+        written,
+        chunk.length - written,
+        offset + written
+      );
+      if (result.bytesWritten <= 0) throw new Error($t("TXT_CODE_http_router.updateErr"));
+      written += result.bytesWritten;
+    }
 
     addChunkRange(this.received, offset, offset + chunk.length);
-    if (isChunkRangeFullyCovered(this.received, this.size)) {
-      await this.done();
-    }
+  }
+
+  async completeIfCovered() {
+    if (this.fd !== null && this.isFullyReceived()) await this.done();
   }
 
   async done() {
@@ -184,6 +226,8 @@ export default class FileWriter {
 
   private async complete() {
     try {
+      await Promise.all(this.pendingWrites);
+      if (this.stopping) throw new Error($t("TXT_CODE_http_router.fileNotOpen"));
       await this.closeFile();
       logger.info("Browser Uploaded File:", this.path);
 
@@ -226,15 +270,34 @@ export default class FileWriter {
   }
 
   async stop() {
+    this.stopping = true;
+    this.stopPromise ||= this.stopInternal();
+    return this.stopPromise;
+  }
+
+  private async stopInternal() {
+    await Promise.allSettled(this.pendingWrites);
     if (this.completion) {
       await this.completion.catch(() => {});
     }
-    await this.closeFile();
+    let cleanupError: unknown;
+    try {
+      await this.closeFile();
+    } catch (error) {
+      cleanupError = error;
+    }
     if (this.id != null) {
       uploadManager.delete(this.id);
     }
-    await fs.remove(this.path);
+    if (this.ownsFile) {
+      try {
+        await fs.remove(this.path);
+      } catch (error) {
+        cleanupError ||= error;
+      }
+    }
     logger.info("Browser Upload Task Stopped:", this.path);
+    if (cleanupError) throw cleanupError;
   }
 
   private readStreamToHash(

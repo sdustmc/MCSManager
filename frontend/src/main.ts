@@ -2,6 +2,7 @@ import { initI18n } from "@/lang/i18n";
 import { initLayoutConfig } from "./services/layout";
 import { useAppStateStore } from "./stores/useAppStateStore";
 import { setAppLoadingError, setLoadingTitle } from "./tools/dom";
+import { isAppMode } from "./utils/appMode";
 
 function handleLoadingError(error: any) {
   console.error("Init app error:", error);
@@ -13,6 +14,15 @@ function handleLoadingError(error: any) {
   setAppLoadingError(errorMessage);
 }
 
+async function applyAppModeTheme() {
+  if (!isAppMode()) return;
+  // `types/const` derives translated constants with `t()` at module scope, so it
+  // must only be evaluated after `initI18n()`; a static import would run it
+  // before the i18n instance exists and yield empty strings.
+  const { AppTheme, THEME_KEY } = await import("./types/const");
+  localStorage.setItem(THEME_KEY, String(AppTheme.DARK));
+}
+
 async function initApp() {
   try {
     const { state, updatePanelStatus } = useAppStateStore();
@@ -20,6 +30,7 @@ async function initApp() {
     await updatePanelStatus();
     setLoadingTitle("Initializing Language...");
     await initI18n(state.language);
+    await applyAppModeTheme();
     setLoadingTitle("Initializing Layout...");
     await initLayoutConfig();
     setLoadingTitle("Downloading JavaScript Files...");

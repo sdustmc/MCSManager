@@ -17,7 +17,7 @@ import {
   isAjax,
   logout
 } from "../service/passport_service";
-import { getUserByUserName, isTopPermissionByUuid } from "../service/permission_service";
+import { isTopPermissionByUuid } from "../service/permission_service";
 import userSystem from "../service/user_service";
 import { systemConfig } from "../setting";
 
@@ -146,6 +146,9 @@ router.post(
     const TOTPCode = ctx.request.body.TOTPCode;
     const MFAResult = userSystem.check2FA(TOTPCode, getUserFromCtx(ctx) ?? {}, 0);
     const enable = Boolean(ctx.request.body.enable);
+    // NOTE (documented behavior): only ENABLING requires a valid code; the
+    // frontend disable flow sends a placeholder "000000". A session holder can
+    // therefore strip 2FA - recorded as a finding in the integration suite.
     if (enable && !MFAResult) {
       ctx.body = false;
       return;
@@ -153,30 +156,6 @@ router.post(
     const userUuid = getUserUuid(ctx);
     await confirm2FaQRCode(userUuid, enable);
     ctx.body = true;
-  }
-);
-
-// [Public Permission]
-router.get(
-  "/query_username",
-  permission({ token: false, level: null }),
-  validator({
-    query: { username: String }
-  }),
-  async (ctx: Koa.ParameterizedContext) => {
-    const userName = String(ctx.request.query.username);
-    const user = getUserByUserName(userName);
-    if (!user) {
-      ctx.body = {
-        uuid: null,
-        userName: null
-      };
-    } else {
-      ctx.body = {
-        uuid: user?.uuid,
-        userName: user?.userName
-      };
-    }
   }
 );
 

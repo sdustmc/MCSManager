@@ -3,13 +3,14 @@ export interface ArchiveEntryInfo {
   isDirectory: boolean;
   attr?: number;
   isLink?: boolean;
+  linkTarget?: string;
 }
 
 const UNIX_FILE_TYPE_MASK = 0xf000;
 const UNIX_SYMBOLIC_LINK = 0xa000;
 
 export function isArchiveLink(entry: ArchiveEntryInfo): boolean {
-  if (entry.isLink) return true;
+  if (entry.isLink || entry.linkTarget !== undefined) return true;
   if (entry.attr === undefined) return false;
 
   const unixMode = entry.attr >>> 16;

@@ -51,7 +51,7 @@ export default class SystemConfig {
   language = "en_us";
 
   // Quick installation address
-  presetPackAddr = "https://script.mcsmanager.com/market-v2.json";
+  presetPackAddr = "https://script.mcsmanager.com/market.json";
 
   // Redis address (Experimental Features)
   redisUrl = "";
@@ -110,6 +110,10 @@ export default class SystemConfig {
   ssoClientSecret = "";
   ssoTokenAuthMethod: "auto" | "client_secret_basic" | "client_secret_post" = "auto";
   ssoCallbackUrl = "";
+  // Comma-separated allowlist of hosts allowed to appear in a derived
+  // redirect_uri. Only consulted when ssoCallbackUrl is empty AND
+  // reverseProxyMode is enabled; empty means "trust no request header".
+  ssoAllowedRedirectHosts = "";
 
   // Whether to enable SSL/TLS (HTTPS)
   ssl = false;
@@ -117,4 +121,9 @@ export default class SystemConfig {
   sslPemPath = "";
   // SSL private key file path (.key)
   sslKeyPath = "";
+
+  // ---- Update source (manifest URL for manual self-update) ----
+  // Full URL to a manifest.json describing available updates, e.g.
+  // "https://mcsmanager.com/upgrade/manifest.json". Empty => update info unavailable.
+  updateSourceUrl = "https://mcsmanager.com/upgrade/manifest.json";
 }

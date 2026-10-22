@@ -8,7 +8,7 @@
 
 [![--](https://img.shields.io/badge/Support%20Platform-Windows/Linux/Mac-green.svg)](https://github.com/MCSManager)
 [![Status](https://img.shields.io/badge/NPM-v8.9.14-blue.svg)](https://www.npmjs.com/)
-[![Status](https://img.shields.io/badge/Node-v16.20.2-blue.svg)](https://nodejs.org/en/download/)
+[![Status](https://img.shields.io/badge/Node-20.19%2B-blue.svg)](https://nodejs.org/en/download/)
 [![Status](https://img.shields.io/badge/License-Apache%202.0-red.svg)](https://github.com/MCSManager)
 
 <p align="center">
@@ -20,7 +20,7 @@
 
 <br />
 
-[English](README.md) - [简体中文](README_ZH.md) - [繁體中文](README_TW.md) - [日本語](README_JP.md) - [Deutsch](README_DE.md) - [Русский](README_RU.md) - [Spanish](README_ES.md) - [Thai](README_TH.md) - [Français](README_FR.md) - [Português BR](README_PTBR.md)
+[English](README.md) - [简体中文](README_ZH.md) - [繁體中文](README_TW.md) - [日本語](README_JP.md) - [Deutsch](README_DE.md) - [Русский](README_RU.md) - [Spanish](README_ES.md) - [Thai](README_TH.md) - [Français](README_FR.md) - [Português BR](README_PTBR.md) - [한국어](README_KO.md)
 
 </div>
 
@@ -32,7 +32,13 @@
 
 MCSManager has gained popularity within the **`Minecraft`** and **`Steam`** gaming communities. It enables you to manage multiple physical or virtual servers from a single platform, and offers a **secure**, **reliable**, and **granular multi-user permission system**. The MCSM Panel continues to support server administrators, operators, and independent developers, managing servers like **`Minecraft`**, **`Terraria`**, and other **`Steam`**-based games for them.
 
-MCSM also has **commercial applications** in mind, such as private server hosting and sales by **IDC service providers**. Several small and medium-sized enterprises already use the panel as a combined **server management** and **sales platform**. In addition, it supports **multi-language environments**, making it accessible to users across different countries and regions.
+**Core features:**
+
+1. Administrators can create Minecraft, Steam, and other game servers (or any other program) based on various templates (or Docker images). Servers can run inside Docker containers or directly as processes, and their terminals can be accessed through the web page.
+
+2. Administrators can create regular users and assign instances to them. Through various means such as Docker containers and file permission checks, the control panel ensures that regular users can only access the instances assigned to them, keeping the host machine as secure as possible.
+
+MCSManager takes the needs of **commercial applications** into account., such as private server hosting and sales by **IDC service providers**. Several small and medium-sized enterprises already use the panel as a combined **server management** and **sales platform**. In addition, it supports **multi-language environments**, making it accessible to users across different countries and regions.
 
 <img width="1871" height="1342" alt="terminal" src="https://github.com/user-attachments/assets/7f6ed988-e402-4347-94ee-a0469f6658da" />
 
@@ -60,7 +66,7 @@ MCSM also has **commercial applications** in mind, such as private server hostin
 
 The control panel runs on both **`Windows`** and **`Linux`** platforms. No database installation is required. Simply install the **`Node.js`** runtime and a few basic **decompression utilities**.
 
-> Requires **[Node.js 16.20.2](https://nodejs.org/en)** or higher.
+> Requires **[Node.js](https://nodejs.org/en)** `^20.19.0 || ^22.12.0 || >=23.0.0` for the SSO ESM dependencies.
 > It is recommended to use the **latest LTS version** for best compatibility and stability.
 
 <br />
@@ -114,12 +120,12 @@ systemctl stop mcsm-{web,daemon}  # Stop panel
 cd /opt/
 
 # Step 2: (Optional) Download and install Node.js if it's not already installed
-wget https://nodejs.org/dist/v20.11.0/node-v20.11.0-linux-x64.tar.xz
-tar -xvf node-v20.11.0-linux-x64.tar.xz
+wget https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz
+tar -xvf node-v24.22.1-linux-x64.tar.xz
 
 # Add Node.js and npm to the system path
-ln -s /opt/node-v20.11.0-linux-x64/bin/node /usr/bin/node
-ln -s /opt/node-v20.11.0-linux-x64/bin/npm /usr/bin/npm
+ln -s /opt/node-v24.22.1-linux-x64/bin/node /usr/bin/node
+ln -s /opt/node-v24.22.1-linux-x64/bin/npm /usr/bin/npm
 
 # Step 3: Prepare the MCSManager installation directory
 mkdir /opt/mcsmanager/

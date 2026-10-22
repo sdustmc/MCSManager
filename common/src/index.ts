@@ -25,7 +25,34 @@ export {
 
 export { arrayUnique } from "./array";
 
+export {
+  applyUpgradePackage,
+  compareVersions,
+  downloadToFile,
+  extractZip,
+  fetchJson
+} from "./upgrade";
+
 export { removeTrail } from "./string_utils";
+
+export {
+  LOG_DIR_MODE,
+  LOG_FILE_MODE,
+  LOG_RETENTION_DAYS,
+  LogEventAppender,
+  LogRotationLayouts,
+  LogRotationWarn,
+  MAX_LOG_SIZE,
+  RotatingAppenderConfig,
+  archiveLogFile,
+  compressPlainArchives,
+  ensureLogDir,
+  formatLogTimestamp,
+  pruneOldLogs,
+  restrictPermission,
+  rotatingFileAppender,
+  runLogMaintenance
+} from "./log_rotation";
 
 export {
   normalizeDockerArchitecture,

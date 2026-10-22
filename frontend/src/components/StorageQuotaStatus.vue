@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { t } from "@/lang/i18n";
+import { useAppStateStore } from "@/stores/useAppStateStore";
 import { parseTimestamp } from "@/tools/time";
 import prettyBytes from "pretty-bytes";
 import { computed } from "vue";
 
 const props = defineProps<{ quota?: IStorageQuotaInfo }>();
+const { isAdmin } = useAppStateStore();
 const format = (value?: number) =>
   value == null
     ? t("TXT_CODE_QUOTA_UNKNOWN")
@@ -14,6 +16,7 @@ const percent = computed(() =>
     ? Math.min(100, (props.quota.usedBytes / props.quota.allocatedBytes) * 100)
     : 0
 );
+const formatPercent = (value?: number) => `${Number(value ?? 0).toFixed(1)}%`;
 const statusKeys = {
   disabled: "TXT_CODE_QUOTA_DISABLED",
   applying: "TXT_CODE_QUOTA_APPLYING",
@@ -35,7 +38,7 @@ const statusKeys = {
         {{ t(statusKeys[quota.state]) }}
       </a-tag>
       <span>{{ format(quota.usedBytes) }} / {{ format(quota.allocatedBytes) }}</span>
-      <span v-if="quota.hardLimitBytes != null"
+      <span v-if="isAdmin && quota.hardLimitBytes != null"
         >{{ t("TXT_CODE_QUOTA_HARD_CAP") }}: {{ format(quota.hardLimitBytes) }}</span
       >
     </a-space>
@@ -43,7 +46,9 @@ const statusKeys = {
       v-if="quota.usedBytes != null"
       :percent="Number(percent.toFixed(1))"
       :status="quota.warning ? 'exception' : 'normal'"
+      :format="formatPercent"
       size="small"
+      style="width: calc(100% - 8px)"
     />
     <div v-if="quota.hardLimitInodes">
       {{ t("TXT_CODE_QUOTA_FILES") }}: {{ quota.usedInodes ?? t("TXT_CODE_QUOTA_UNKNOWN") }} /

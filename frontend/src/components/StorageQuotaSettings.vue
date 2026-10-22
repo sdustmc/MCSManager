@@ -3,6 +3,7 @@ import { useStoragePools } from "@/hooks/useStoragePools";
 import { useStorageQuotaOperation } from "@/hooks/useStorageQuotaOperation";
 import { t } from "@/lang/i18n";
 import { checkStorageQuotaApi, retryStorageQuotaApi } from "@/services/apis/storageQuota";
+import { useAppStateStore } from "@/stores/useAppStateStore";
 import { reportErrorMsg } from "@/tools/validator";
 import { computed, onUnmounted, ref, toRef, watch } from "vue";
 import StorageQuotaStatus from "./StorageQuotaStatus.vue";
@@ -17,6 +18,7 @@ const props = defineProps<{
   templateMode?: boolean;
 }>();
 const emit = defineEmits<{ (event: "update:value", value: IGlobalInstanceDockerConfig): void }>();
+const { isAdmin } = useAppStateStore();
 const { pools, error, loading, refresh } = useStoragePools(toRef(props, "daemonId"));
 const update = (field: keyof IGlobalInstanceDockerConfig, value: unknown) =>
   emit("update:value", { ...props.value, [field]: value });
@@ -122,7 +124,7 @@ const retry = async () => {
           />
         </a-form-item>
       </a-col>
-      <a-col :xs="24" :lg="8">
+      <a-col :xs="24" :lg="12">
         <a-form-item :label="t('TXT_CODE_QUOTA_FILES_LIMIT')">
           <a-input-number
             :value="value.storageQuotaInodes ?? 0"
@@ -134,7 +136,7 @@ const retry = async () => {
           />
         </a-form-item>
       </a-col>
-      <a-col :xs="24" :lg="8">
+      <a-col :xs="24" :lg="12">
         <a-form-item :label="t('TXT_CODE_QUOTA_WARNING_PERCENT')">
           <a-input-number
             :value="value.storageQuotaWarningPercent ?? 80"
@@ -148,36 +150,55 @@ const retry = async () => {
       </a-col>
       <a-col :span="24">
         <a-alert
+          v-if="isAdmin"
           type="info"
           show-icon
           :message="t('TXT_CODE_QUOTA_EFFECTIVE_LIMIT', { size: hardGiB.toFixed(2) })"
+          :description="t('TXT_CODE_QUOTA_BUFFER_HELP')"
+        />
+        <a-alert
+          v-else
+          type="info"
+          show-icon
           :description="t('TXT_CODE_QUOTA_BUFFER_HELP')"
         />
       </a-col>
     </template>
     <a-col v-if="!templateMode" :span="24">
       <a-form-item :label="t('TXT_CODE_QUOTA_POOL')">
-        <a-space wrap>
-          <a-select
-            :value="value.storagePoolId || undefined"
-            :loading="loading"
-            allow-clear
-            style="min-width: 240px"
-            :placeholder="t('TXT_CODE_QUOTA_DEFAULT_PATH')"
-            @change="update('storagePoolId', $event || '')"
-          >
-            <a-select-option
-              v-for="pool in pools"
-              :key="pool.id"
-              :value="pool.id"
-              :disabled="Boolean(pool.error)"
-              >{{ pool.name }}</a-select-option
+        <a-space direction="vertical" align="start" size="small" style="width: 100%">
+          <a-space wrap>
+            <a-select
+              :value="value.storagePoolId || undefined"
+              :loading="loading"
+              allow-clear
+              style="min-width: 240px"
+              :placeholder="t('TXT_CODE_QUOTA_DEFAULT_PATH')"
+              @change="update('storagePoolId', $event || '')"
             >
-          </a-select>
-          <a-button :loading="loading" @click="refresh">{{ t("TXT_CODE_b76d94e0") }}</a-button>
+              <a-select-option
+                v-for="pool in pools"
+                :key="pool.id"
+                :value="pool.id"
+                :disabled="Boolean(pool.error)"
+                >{{ pool.name }}</a-select-option
+              >
+            </a-select>
+            <a-button :loading="loading" @click="refresh">{{ t("TXT_CODE_b76d94e0") }}</a-button>
+          </a-space>
+          <div style="width: 100%">
+            <a-typography-text type="secondary">
+              {{ t("TXT_CODE_QUOTA_POOL_MOVE") }}
+            </a-typography-text>
+          </div>
+          <a-alert
+            v-if="error"
+            :message="error"
+            type="warning"
+            show-icon
+            style="width: 100%"
+          />
         </a-space>
-        <p>{{ t("TXT_CODE_QUOTA_POOL_MOVE") }}</p>
-        <a-alert v-if="error" :message="error" type="warning" show-icon />
       </a-form-item>
     </a-col>
     <a-col

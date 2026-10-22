@@ -4,7 +4,8 @@
 
 ### 所需环境
 
-- Node.js v16+
+- Node.js `^20.19.0 || ^22.12.0 || >=23.0.0`（SSO 的 ESM 依赖需要此版本范围）。
+- 使用 nvm 时，运行 `nvm install` 和 `nvm use`，选择本地 Node.js 24。
 
 我们使用 `Visual Studio Code` 开发 MCSManager，我们**极力推荐**这些插件：
 
@@ -70,6 +71,23 @@ wget https://github.com/MCSManager/Zip-Tools/releases/download/latest/7z_linux_x
 ```bash
 npm run dev
 ```
+
+<br />
+
+### 不安全的集成测试模式（仅限自动化测试）
+
+面板支持一个**不安全**的启动参数，用于关闭鉴权，让自动化集成测试无需真实登录即可调用高权限 API：
+
+```bash
+node production/app.js --Unsafe-Integration-Test-Mode=<密钥>
+```
+
+- 参数**名称**不区分大小写（`--unsafe-integration-test-mode=<密钥>` 同样有效）；`<密钥>` 的值区分大小写。
+- 启用后，任何携带 `x-request-api-key` 请求头且其值等于 `<密钥>` 的请求，都会跳过 `panel/src/app/middleware/permission.ts` 中的**全部**权限校验（API Key 校验、Token 与会话校验），直接进入路由处理函数。
+- 仅识别请求头，`?apikey=` 查询参数不会触发放行。
+- 未显式传入该参数时该模式处于关闭状态，且不会写入任何配置文件。
+
+> **安全警告：** 任何知道该密钥的人都将拥有完整管理员权限。请使用足够长的随机密钥，切勿在生产环境启用。
 
 <br />
 

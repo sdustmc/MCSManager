@@ -53,7 +53,14 @@ class DiskLimitService {
       for (let i = 0; i < this.concurrent; i++) {
         const item = this.queue.pop();
         if (item) {
-          promises.push(this.checkDiskNow(item));
+          promises.push(
+            this.checkDiskNow(item).catch((error) => {
+              logger.warn(
+                `Disk usage check failed for instance ${item.instance.instanceUuid}`,
+                error
+              );
+            })
+          );
         }
       }
       await Promise.all(promises);

@@ -114,6 +114,8 @@ export interface Settings {
   operationLogRecordFile: boolean;
   operationLogRecordUser: boolean;
   operationLogRecordSystem: boolean;
+  // Auto update (panel self-update)
+  updateSourceUrl: string;
 }
 
 export interface ImageInfo {
@@ -264,15 +266,14 @@ export interface ScheduleTaskForm extends NewScheduleTask {
 export interface PanelStatus {
   isInstall: boolean;
   language: string;
-  versionChange?: boolean;
   settings: {
-    canFileManager: boolean;
-    allowUsePreset: boolean;
     businessMode: boolean;
     businessId: string;
-    allowChangeCmd: boolean;
-    panelId: string;
-    ssoEnabled: boolean;
-    ssoOnlyMode: boolean;
+    // Only returned for logged-in users
+    canFileManager?: boolean;
+    allowUsePreset?: boolean;
+    allowChangeCmd?: boolean;
+    panelId?: string;
+    ssoEnabled?: boolean;
   };
 }

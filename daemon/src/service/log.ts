@@ -1,23 +1,22 @@
-import fs from "fs-extra";
 import * as log4js from "log4js";
-import { systemInfo } from "mcsmanager-common";
+import { rotatingFileAppender, runLogMaintenance, systemInfo } from "mcsmanager-common";
 import { $t } from "../i18n";
+
+// The auto-update restarter may relaunch this process detached with inherited
+// stdio (interactive console mode). If that terminal is closed later, the
+// handles become invalid and stream writes emit "error" (EPIPE/EIO); swallow
+// those so the process keeps running and the file appender keeps working.
+process.stdout.on("error", () => {});
+process.stderr.on("error", () => {});
+process.stdin.on("error", () => {});
 
 const LOG_FILE_PATH = "logs/current.log";
 const LOG_SYS_INFO_FILE_PATH = "logs/sysinfo.log";
 
-const time = new Date();
-const timeString =
-  `${time.getFullYear()}-${time.getMonth() + 1}-${time.getDate()}` +
-  `_${time.getHours()}-${time.getMinutes()}-${time.getSeconds()}`;
-
-if (fs.existsSync(LOG_FILE_PATH)) {
-  fs.renameSync(LOG_FILE_PATH, `logs/${timeString}.log`);
-}
-
-if (fs.existsSync(LOG_SYS_INFO_FILE_PATH)) {
-  fs.renameSync(LOG_SYS_INFO_FILE_PATH, `logs/sysinfo_${timeString}.log`);
-}
+const maintenanceWarnings: string[] = [];
+runLogMaintenance("logs", ["current.log", "sysinfo.log"], (message) =>
+  maintenanceWarnings.push(message)
+);
 
 log4js.configure({
   appenders: {
@@ -29,16 +28,18 @@ log4js.configure({
       }
     },
     app: {
-      type: "file",
+      type: rotatingFileAppender as any,
       filename: LOG_FILE_PATH,
+      activeNames: ["current.log", "sysinfo.log"],
       layout: {
         type: "pattern",
         pattern: "[%d{MM/dd hh:mm:ss}] [%p] %m"
       }
     },
     sys: {
-      type: "file",
+      type: rotatingFileAppender as any,
       filename: LOG_SYS_INFO_FILE_PATH,
+      activeNames: ["current.log", "sysinfo.log"],
       layout: {
         type: "pattern",
         pattern: "[%d{MM/dd hh:mm:ss}] [%p] %m"
@@ -59,6 +60,9 @@ log4js.configure({
 
 const logger = log4js.getLogger("default");
 const loggerSysInfo = log4js.getLogger("sysinfo");
+
+for (const message of maintenanceWarnings) logger.warn(message);
+
 function toInt(v: number) {
   return parseInt(String(v));
 }

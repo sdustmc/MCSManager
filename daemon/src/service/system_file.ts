@@ -8,8 +8,11 @@ import { compress, decompress, listArchiveEntries } from "../common/compress";
 import { globalConfiguration } from "../entity/config";
 import { $t, i18next } from "../i18n";
 import { ArchiveEntryInfo, isArchiveLink } from "../tools/archive_entry";
+import type { FileOwnership } from "../tools/file_ownership";
+import { syncPathOwnershipWithinRoot } from "../tools/file_ownership";
 import { normalizedJoin } from "../tools/filepath";
 import { isPathOutsideWorkspace, isUnsafeArchiveTarget } from "../tools/path_link_check";
+import { selectArchiveOwnershipTargets } from "./upload_ownership_utils";
 
 const ERROR_MSG_01 = $t("TXT_CODE_system_file.illegalAccess");
 const ERROR_PATH_NOT_FOUND = $t("TXT_CODE_96281410");
@@ -56,7 +59,7 @@ export default class FileManager {
 
     let finalPath = "";
     if (path.normalize(fileName).indexOf(topAbsolutePath) === 0) {
-      finalPath = fileName;
+      finalPath = path.normalize(fileName);
     } else if (os.platform() === "win32") {
       const reg = new RegExp("^[A-Za-z]{1}:[\\\\/]{1}");
       if (reg.test(this.cwd)) {
@@ -238,16 +241,21 @@ export default class FileManager {
     return fs.mkdirSync(targetPath, { recursive: true });
   }
 
-  async delete(target: string): Promise<boolean> {
-    if (!this.check(target)) throw new Error(ERROR_MSG_01);
+  async delete(target: string, options: { ignoreMissing?: boolean } = {}): Promise<boolean> {
+    if (!this.checkPath(target)) throw new Error(ERROR_MSG_01);
     const targetPath = this.toAbsolutePath(target);
+    if (!fs.existsSync(targetPath)) {
+      if (options.ignoreMissing) return true;
+      throw new Error(ERROR_MSG_01);
+    }
     if (path.normalize(targetPath) === path.normalize(this.topPath) && !this.isRootTopRath()) {
       await fs.emptyDir(targetPath);
       return true;
     }
     return new Promise((r, j) => {
       fs.remove(targetPath, (err) => {
-        if (!err) r(true);
+        if (!err || (options.ignoreMissing && (err as NodeJS.ErrnoException).code === "ENOENT"))
+          r(true);
         else j(err);
       });
     });
@@ -265,7 +273,7 @@ export default class FileManager {
     sourceZip: string,
     destDir: string,
     code?: string,
-    beforeExtract?: (entryPaths: string[]) => void | Promise<void>
+    beforeExtractOrOwnership?: ((entryPaths: string[]) => void | Promise<void>) | FileOwnership
   ) {
     if (!code) code = this.fileCode;
     if (!this.check(sourceZip) || !this.checkPath(destDir)) throw new Error(ERROR_MSG_01);
@@ -274,9 +282,18 @@ export default class FileManager {
     const absDest = this.toAbsolutePath(destDir);
 
     const entryPaths = await this.listArchiveEntryPaths(absSource, absDest);
-    await beforeExtract?.(entryPaths);
+    const ownership =
+      typeof beforeExtractOrOwnership === "function" ? undefined : beforeExtractOrOwnership;
+    const ownershipTargets = ownership ? await selectArchiveOwnershipTargets(entryPaths) : [];
+    if (typeof beforeExtractOrOwnership === "function") await beforeExtractOrOwnership(entryPaths);
 
-    return await decompress(absSource, absDest, code);
+    const result = await decompress(absSource, absDest, code);
+    if (ownership) {
+      for (const target of ownershipTargets) {
+        await syncPathOwnershipWithinRoot(this.topPath, target, ownership);
+      }
+    }
+    return result;
   }
 
   async listArchiveEntryPaths(sourceZip: string, destDir: string): Promise<string[]> {
@@ -303,7 +320,8 @@ export default class FileManager {
 
     const entryPaths = new Set<string>();
     for (const entry of archiveEntries) {
-      if (isArchiveLink(entry)) throw new Error(ERROR_MSG_01);
+      if (isArchiveLink(entry) || entry.name.split(/[\\/]/).includes(".."))
+        throw new Error(ERROR_MSG_01);
       const entryPath = path.resolve(absDest, entry.name);
       const relativeEntryPath = path.relative(absDest, entryPath);
       if (
