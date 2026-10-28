@@ -126,6 +126,7 @@ export enum ScheduleCreateType {
 }
 
 export const defaultDockerConfig: IGlobalInstanceDockerConfig = {
+  sharedBandwidth: false,
   updateCommandImage: "",
   containerName: "",
   image: "",

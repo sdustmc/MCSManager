@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import NodeRemoteMappingEdit from "@/components/NodeRemoteMappingEdit.vue";
 import StoragePoolsEditor from "@/components/StoragePoolsEditor.vue";
+import SharedBandwidthSettings from "@/components/SharedBandwidthSettings.vue";
 import type { ComputedNodeInfo } from "@/hooks/useOverviewInfo";
 import { useRemoteNode } from "@/hooks/useRemoteNode";
 import { t } from "@/lang/i18n";
@@ -35,7 +36,13 @@ const DEFAULT_CONFIG = {
   enableSoftShutdown: true,
   softShutdownSkipDocker: true,
   softShutdownWaitSeconds: 10,
-  storagePools: [] as IStoragePoolConfig[]
+  storagePools: [] as IStoragePoolConfig[],
+  sharedBandwidth: {
+    enabled: false,
+    interface: "",
+    uplinkMbps: 0,
+    sharedMbps: 0
+  } as ISharedBandwidthConfig
 };
 
 const SPEED_RATE_OPTIONS = [
@@ -105,6 +112,7 @@ const openDialog = (data?: ComputedNodeInfo, uuid?: string) => {
       daemonPort: data.config?.port ?? 24444, // listen port
       apiKey: "",
       storagePools: data.config?.storagePools || [],
+      sharedBandwidth: data.config?.sharedBandwidth || _.cloneDeep(DEFAULT_CONFIG.sharedBandwidth),
       remoteMappings: data.remoteMappings ?? []
     };
   } else {
@@ -376,6 +384,13 @@ defineExpose({ openDialog });
             </a-card>
           </a-form-item>
         </a-form>
+      </a-tab-pane>
+      <a-tab-pane
+        v-if="daemonInfo?.available && editMode"
+        key="bandwidth"
+        :tab="t('TXT_CODE_SHARED_TITLE')"
+      >
+        <SharedBandwidthSettings v-model:value="dialog.data.sharedBandwidth" />
       </a-tab-pane>
       <a-tab-pane
         v-if="daemonInfo?.available && editMode"

@@ -110,6 +110,8 @@ declare global {
     uploadSpeedLimit?: number;
     /** Download speed limit in KB/s */
     downloadSpeedLimit?: number;
+    /** Share the node's lowest-priority outbound bandwidth pool. */
+    sharedBandwidth?: boolean;
     /** Whether to enable GPU passthrough */
     gpuEnabled?: boolean;
     /** GPU count: -1 = all GPUs, 0 = none, positive integer = specific count */
@@ -193,8 +195,16 @@ declare global {
       softShutdownSkipDocker: boolean;
       softShutdownWaitSeconds: number;
       storagePools?: IStoragePoolConfig[];
+      sharedBandwidth?: ISharedBandwidthConfig;
     };
     dockerPlatforms?: string[];
+  }
+
+  interface ISharedBandwidthConfig {
+    enabled: boolean;
+    interface: string;
+    uplinkMbps: number;
+    sharedMbps: number;
   }
 
   interface IStoragePoolConfig {

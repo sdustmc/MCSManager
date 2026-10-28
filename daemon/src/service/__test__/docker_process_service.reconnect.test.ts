@@ -305,7 +305,7 @@ describe("Docker console reconnect after transport loss (simulated daemon restar
     const port = await proxy.listen();
     docker = new Docker({ protocol: "http", host: "127.0.0.1", port });
     container = await startFixtureContainer(docker, workspace, `mcsm-reconnect-${Date.now()}`);
-    adapter = new DockerProcessAdapter({} as any);
+    adapter = new DockerProcessAdapter({ applySharedBandwidth: async () => {} } as any);
     out = collectOutput(adapter);
     await adapter.start({ isTty: true, h: 24, w: 80 }, container);
     started = true;
@@ -383,7 +383,7 @@ describe("Docker console after a real Docker daemon restart (live)", () => {
     fs.mkdirpSync(workspace);
     docker = new Docker({ socketPath: DOCKER_SOCKET });
     container = await startFixtureContainer(docker, workspace, `mcsm-restart-${Date.now()}`);
-    adapter = new DockerProcessAdapter({} as any);
+    adapter = new DockerProcessAdapter({ applySharedBandwidth: async () => {} } as any);
     out = collectOutput(adapter);
     await adapter.start({ isTty: true, h: 24, w: 80 }, container);
     started = true;

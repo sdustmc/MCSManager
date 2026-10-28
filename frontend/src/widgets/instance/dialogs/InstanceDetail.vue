@@ -1558,6 +1558,17 @@ defineExpose({
               </a-col>
 
               <a-col :xs="24" :lg="8" :offset="0">
+                <a-form-item :label="t('TXT_CODE_SHARED_INSTANCE')">
+                  <a-typography-paragraph>
+                    <a-typography-text type="secondary">
+                      {{ t("TXT_CODE_SHARED_INSTANCE_HELP") }}
+                    </a-typography-text>
+                  </a-typography-paragraph>
+                  <a-switch v-model:checked="formData.instance.config.docker.sharedBandwidth" />
+                </a-form-item>
+              </a-col>
+
+              <a-col :xs="24" :lg="8" :offset="0">
                 <a-form-item>
                   <a-typography-title :level="5">
                     {{ t("TXT_CODE_59653f38") }}

@@ -15,6 +15,8 @@ import DockerTakeoverCommand from "../entity/commands/docker/docker_takeover";
 import { DefaultDocker } from "./docker_service";
 import InstanceSubsystem from "./system_instance";
 import logger from "./log";
+import { globalConfiguration } from "../entity/config";
+import { SharedBandwidthService } from "./shared_bandwidth_service";
 
 export default async function takeoverContainer() {
   const docker = new DefaultDocker();
@@ -29,6 +31,17 @@ export default async function takeoverContainer() {
     }
     containers.set(label, containerInfo);
   });
+
+  try {
+    const service = SharedBandwidthService.getInstance();
+    await service.configure(globalConfiguration.config.sharedBandwidth);
+    const hasSharedInstance = Array.from(containers.keys()).some(
+      (uuid) => InstanceSubsystem.getInstance(uuid)?.config.docker.sharedBandwidth
+    );
+    if (!hasSharedInstance) await service.cleanupIfIdle();
+  } catch (error) {
+    logger.error("Failed to restore the shared outbound bandwidth configuration:", error);
+  }
 
   for (const item of containers) {
     const [uuid, container] = item;

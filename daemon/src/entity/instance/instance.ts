@@ -158,6 +158,12 @@ export default class Instance extends EventEmitter {
 
   // Pass in instance configuration, loosely and dynamically set configuration items for instance parameters
   parameters(cfg: any, persistence = true) {
+    if (
+      cfg?.docker?.sharedBandwidth !== undefined &&
+      typeof cfg.docker.sharedBandwidth !== "boolean"
+    ) {
+      throw new Error($t("TXT_CODE_SHARED_INVALID_INSTANCE"));
+    }
     // If the instance type changes, default commands and lifecycle events must be reset
     if (cfg?.type && cfg?.type != this.config.type) {
       if (!this.isStoppedOrBusy())
@@ -276,6 +282,9 @@ export default class Instance extends EventEmitter {
       configureEntityParams(this.config.docker, cfg.docker, "memorySwap", Number);
       configureEntityParams(this.config.docker, cfg.docker, "uploadSpeedLimit", Number);
       configureEntityParams(this.config.docker, cfg.docker, "downloadSpeedLimit", Number);
+      if (cfg.docker.sharedBandwidth !== undefined) {
+        this.config.docker.sharedBandwidth = cfg.docker.sharedBandwidth;
+      }
       configureEntityParams(this.config.docker, cfg.docker, "capAdd");
       configureEntityParams(this.config.docker, cfg.docker, "capDrop");
       configureEntityParams(this.config.docker, cfg.docker, "devices");

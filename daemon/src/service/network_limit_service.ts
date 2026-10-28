@@ -4,6 +4,7 @@ import fs from "fs";
 import { promisify } from "util";
 import { DefaultDocker } from "./docker_service";
 import logger from "./log";
+import { $t } from "../i18n";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -40,7 +41,7 @@ function formatCommand(command: string, args: string[] = []): string {
   return [command, ...args].join(" ");
 }
 
-async function execWithSudo(
+export async function execWithSudo(
   command: string,
   args: string[] = []
 ): Promise<{ stdout: string; stderr: string }> {
@@ -119,6 +120,36 @@ export class NetworkLimitService {
       NetworkLimitService.instance = new NetworkLimitService();
     }
     return NetworkLimitService.instance;
+  }
+
+  /** Resolve a local, rootful Docker bridge endpoint for shared outbound shaping. */
+  public async getSharedBandwidthVeth(containerId: string): Promise<string> {
+    if (process.platform !== "linux" || !DefaultDocker.defaultConfig.socketPath) {
+      throw new Error($t("TXT_CODE_SHARED_DOCKER_REQUIRED"));
+    }
+    const info = await this.docker.info();
+    if (info.SecurityOptions?.some((option: string) => option.includes("rootless"))) {
+      throw new Error($t("TXT_CODE_SHARED_DOCKER_REQUIRED"));
+    }
+    const container = await this.inspectContainer(containerId);
+    const networks = Object.keys(container.NetworkSettings?.Networks || {});
+    if (
+      networks.length !== 1 ||
+      container.HostConfig.NetworkMode === "host" ||
+      container.HostConfig.NetworkMode?.startsWith("container:")
+    ) {
+      throw new Error($t("TXT_CODE_SHARED_BRIDGE_REQUIRED"));
+    }
+    const network = await this.docker.getNetwork(networks[0]).inspect();
+    if (network.Driver !== "bridge") {
+      throw new Error($t("TXT_CODE_SHARED_BRIDGE_REQUIRED"));
+    }
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const veth = await this.resolveVethFromPid(containerId, container.State.Pid);
+      if (veth) return veth;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    throw new Error($t("TXT_CODE_SHARED_VETH_FAILED"));
   }
 
   /**
@@ -346,7 +377,12 @@ export class NetworkLimitService {
       if (!this.isAlreadyExistsError(err)) throw err;
     });
     await execWithSudo("ip", ["link", "set", "dev", ifbName, "up"]);
-    await execWithSudo("tc", ["qdisc", "replace", "dev", veth, "ingress"]);
+    // Preserve the shared-pool classifier installed before per-instance shaping.
+    const { stdout: qdiscInfo } = await execWithSudo("tc", ["-j", "qdisc", "show", "dev", veth]);
+    const qdiscs = JSON.parse(qdiscInfo) as { kind: string }[];
+    if (!qdiscs.some((qdisc) => ["ingress", "clsact"].includes(qdisc.kind))) {
+      await execWithSudo("tc", ["qdisc", "add", "dev", veth, "ingress"]);
+    }
     await execWithSudo("tc", [
       "filter",
       "add",

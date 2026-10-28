@@ -28,6 +28,8 @@ import { getLinuxSystemId } from "../tools/system_user";
 import { AsyncTask } from "./async_task_service";
 import logger from "./log";
 import { NetworkLimitService } from "./network_limit_service";
+import { SharedBandwidthService } from "./shared_bandwidth_service";
+import { globalConfiguration } from "../entity/config";
 import InstanceSubsystem from "./system_instance";
 import storageQuotaService from "./storage_quota_service";
 import { sleep } from "../utils/sleep";
@@ -172,6 +174,9 @@ export class SetupDockerContainer extends AsyncTask {
     public readonly imageOverride?: string
   ) {
     super();
+    this.on("error", (error) => {
+      logger.error("Docker container setup failed:", this.instance.instanceUuid, error);
+    });
   }
 
   public async onStart() {
@@ -181,6 +186,11 @@ export class SetupDockerContainer extends AsyncTask {
     const dockerConfig = instance.config.docker;
     if (!dockerConfig) {
       throw new Error("Instance's Docker configuration is not found! ");
+    }
+    if (dockerConfig.sharedBandwidth) {
+      const config = globalConfiguration.config.sharedBandwidth;
+      if (!config?.enabled) throw new Error($t("TXT_CODE_SHARED_NOT_CONFIGURED"));
+      await SharedBandwidthService.getInstance().configure(config);
     }
 
     const instanceWorkspace = storageQuotaService.resolveDockerLocalWorkspace(instance);
@@ -626,6 +636,14 @@ export class SetupDockerContainer extends AsyncTask {
 
     await this.container.start();
 
+    try {
+      await this.applySharedBandwidth(this.container);
+    } catch (error) {
+      logger.error("Failed to join the shared outbound bandwidth pool:", this.container.id, error);
+      await this.onStop();
+      throw error;
+    }
+
     // Apply bandwidth limits if configured
     if (dockerConfig && (dockerConfig.uploadSpeedLimit || dockerConfig.downloadSpeedLimit)) {
       try {
@@ -643,6 +661,7 @@ export class SetupDockerContainer extends AsyncTask {
         this.container.kill().catch(() => {});
         this.container.remove().catch(() => {});
         await networkLimitService.clearBandwidthLimit(this.container.id);
+        await this.onStop();
         throw error;
       }
     }
@@ -663,6 +682,11 @@ export class SetupDockerContainer extends AsyncTask {
 
     if (containerId) {
       try {
+        await SharedBandwidthService.getInstance().leave(containerId);
+      } catch (error) {
+        logger.error("Failed to release shared outbound bandwidth:", containerId, error);
+      }
+      try {
         await NetworkLimitService.getInstance().clearBandwidthLimit(containerId);
       } catch (error) {}
     }
@@ -671,6 +695,14 @@ export class SetupDockerContainer extends AsyncTask {
   public getContainer() {
     if (!this.container) throw new Error("Function getContainer(): Failed, Container is Null!");
     return this.container;
+  }
+
+  public async applySharedBandwidth(container: Docker.Container): Promise<void> {
+    if (!this.instance.config.docker.sharedBandwidth) return;
+    const service = SharedBandwidthService.getInstance();
+    await service.configure(globalConfiguration.config.sharedBandwidth);
+    const veth = await NetworkLimitService.getInstance().getSharedBandwidthVeth(container.id);
+    await service.join(container.id, veth);
   }
 
   public async attach(instance: Instance) {
@@ -714,6 +746,7 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
     try {
       if (container) {
         this.container = container;
+        await this.containerWrapper.applySharedBandwidth(container);
       } else {
         await this.containerWrapper.start();
         this.container = this.containerWrapper.getContainer();
@@ -777,6 +810,7 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
     try {
       await this.container?.remove();
     } catch (error: any) {}
+    if (this.container) await SharedBandwidthService.getInstance().leave(this.container.id);
   }
 
   private async attachStream() {
@@ -874,6 +908,13 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
     try {
       await this.container?.remove();
     } catch (error) {}
+    if (this.container) {
+      try {
+        await SharedBandwidthService.getInstance().leave(this.container.id);
+      } catch (error) {
+        logger.error("Failed to release shared bandwidth after container exit:", this.container.id, error);
+      }
+    }
     this.emit("exit", code);
   }
 

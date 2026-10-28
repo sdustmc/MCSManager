@@ -330,6 +330,10 @@ describe("Docker instance lifecycle (real)", () => {
     expect(containers[0].State).toBe("running");
     expect(containers[0].Image).toContain("node");
 
+    const { NetworkLimitService } = await import("../../service/network_limit_service");
+    const veth = await NetworkLimitService.getInstance().getSharedBandwidthVeth(String(inst.process.pid));
+    expect(veth).toBeTruthy();
+
     // The fixture really runs inside the container: it keeps appending
     // heartbeats to the bind-mounted instance workspace.
     await expectHeartbeatGrows(heartbeatFileOf(cfg));
@@ -358,6 +362,21 @@ describe("Docker instance lifecycle (real)", () => {
 
     await killInstance(inst);
   }, 120000);
+
+  it("refuses shared uploads before creating a container when the node pool is disabled", async () => {
+    if (!dockerOk) return;
+    const cfg = dockerConfig("docker-shared-disabled");
+    const { inst, output, uuid } = createInstance({
+      ...cfg,
+      docker: { ...cfg.docker, sharedBandwidth: true }
+    });
+    const { socket } = invoke("instance/open", { instanceUuids: [uuid] });
+    await waitFor(() => packetsFor(socket, "instance/open").length > 0, 15000, "shared start failure");
+    await waitFor(() => inst.status() === Instance.STATUS_STOP, 15000, "shared instance stopped");
+    expect(await listLabeledContainers(uuid)).toHaveLength(0);
+    const { $t } = await import("../../i18n");
+    expect(output.join("")).toContain($t("TXT_CODE_SHARED_NOT_CONFIGURED"));
+  }, 30000);
 
   it("kill terminates the Docker instance, freezes the fixture and removes its container", async () => {
     if (!dockerOk) return;

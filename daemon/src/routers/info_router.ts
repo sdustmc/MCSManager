@@ -14,6 +14,7 @@ import logger from "../service/log";
 import VisualDataSubsystem from "../service/system_visual_data";
 import { getVersion } from "../service/version";
 import storageQuotaService from "../service/storage_quota_service";
+import { SharedBandwidthService } from "../service/shared_bandwidth_service";
 
 // Get the basic information of the daemon system
 routerApp.on("info/overview", async (ctx) => {
@@ -59,7 +60,8 @@ routerApp.on("info/overview", async (ctx) => {
       enableSoftShutdown: globalConfiguration.config.enableSoftShutdown,
       softShutdownSkipDocker: globalConfiguration.config.softShutdownSkipDocker,
       softShutdownWaitSeconds: globalConfiguration.config.softShutdownWaitSeconds,
-      storagePools: globalConfiguration.config.storagePools || []
+      storagePools: globalConfiguration.config.storagePools || [],
+      sharedBandwidth: globalConfiguration.config.sharedBandwidth
     },
     dockerPlatforms
   };
@@ -77,6 +79,19 @@ routerApp.on("info/setting", async (ctx, data) => {
     } catch (error: any) {
       logger.error("Storage pool validation failed:", error);
       protocol.error(ctx, "info/setting", { err: error.message });
+      return;
+    }
+  }
+  const previousSharedBandwidth = globalConfiguration.config.sharedBandwidth;
+  let sharedBandwidth: ISharedBandwidthConfig | undefined;
+  if (data.sharedBandwidth !== undefined) {
+    try {
+      sharedBandwidth = await SharedBandwidthService.getInstance().configure(data.sharedBandwidth);
+    } catch (error: any) {
+      logger.error("Shared bandwidth configuration failed:", error);
+      protocol.error(ctx, "info/setting", {
+        err: error.message
+      });
       return;
     }
   }
@@ -134,7 +149,16 @@ routerApp.on("info/setting", async (ctx, data) => {
     globalConfiguration.config.softShutdownWaitSeconds = softShutdownWaitSeconds;
   }
   if (storagePools) globalConfiguration.config.storagePools = storagePools;
-  globalConfiguration.store();
+  if (sharedBandwidth) globalConfiguration.config.sharedBandwidth = sharedBandwidth;
+  try {
+    globalConfiguration.store();
+  } catch (error) {
+    globalConfiguration.config.sharedBandwidth = previousSharedBandwidth;
+    if (data.sharedBandwidth !== undefined) {
+      await SharedBandwidthService.getInstance().configure(previousSharedBandwidth);
+    }
+    throw error;
+  }
   protocol.response(ctx, true);
 });
 
