@@ -2,6 +2,7 @@ import { execFile, spawn, type ChildProcess } from "child_process";
 import fs from "fs/promises";
 import { promisify } from "util";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { NetworkLimitService } from "../network_limit_service";
 import { SharedBandwidthService } from "../shared_bandwidth_service";
 
 vi.mock("../log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -179,6 +180,62 @@ networkDescribe("shared outbound bandwidth in an isolated Linux network", () => 
     },
     15000
   );
+
+  it("caps instances at 10 and 20 Mbps while keeping their combined limit at 20 Mbps", async () => {
+    const limiter = NetworkLimitService.getInstance();
+    const endpoints = new Map([
+      [firstId, { pid: first, veth: "vethpoola" }],
+      [secondId, { pid: second, veth: "vethpoolb" }]
+    ]);
+    // Only Docker inventory is simulated; shaping and traffic use the real isolated network.
+    const inventory = vi
+      .spyOn(limiter as any, "getContainerNetworkInfo")
+      .mockImplementation(async (id: string) => ({
+        pid: endpoints.get(id)!.pid,
+        networkMode: "bridge"
+      }));
+    const resolveVeth = vi
+      .spyOn(limiter as any, "resolveVethFromPid")
+      .mockImplementation(async (id: string) => endpoints.get(id)!.veth);
+    try {
+      // Loading IFB must not create default devices in the host namespace.
+      await run("modprobe", ["ifb", "numifbs=0"]);
+      await service.join(firstId, "vethpoola");
+      await service.join(secondId, "vethpoolb");
+      await limiter.setBandwidthLimit(firstId, { uploadLimit: 1250 });
+      await limiter.setBandwidthLimit(secondId, { uploadLimit: 2500 });
+
+      const firstAlone = await transfer(first);
+      expect(firstAlone).toBeGreaterThan(8);
+      expect(firstAlone).toBeLessThan(11);
+      const secondAlone = await transfer(second);
+      // Short IFB bursts and scheduler overhead can reduce achieved throughput.
+      expect(secondAlone).toBeGreaterThan(15);
+      expect(secondAlone).toBeGreaterThan(firstAlone * 1.5);
+      expect(secondAlone).toBeLessThan(22);
+
+      const together = await Promise.all([transfer(first), transfer(second)]);
+      expect(together[0]).toBeLessThan(11);
+      expect(together[1]).toBeLessThan(22);
+      expect(together[0] + together[1]).toBeGreaterThan(17);
+      expect(together[0] + together[1]).toBeLessThan(22);
+    } finally {
+      await Promise.allSettled(transfers);
+      try {
+        await service.leave(firstId);
+        await service.leave(secondId);
+        await limiter.clearBandwidthLimit(firstId);
+        await limiter.clearBandwidthLimit(secondId);
+      } finally {
+        inventory.mockRestore();
+        resolveVeth.mockRestore();
+      }
+    }
+    const links = JSON.parse(await run("ip", ["-j", "link", "show"]));
+    expect(
+      links.some((link: { ifname: string }) => link.ifname.startsWith("ifb_"))
+    ).toBe(false);
+  }, 40000);
 
   it.each(["host service", "nonshared instance"])(
     "gives priority to a %s",

@@ -14,6 +14,7 @@ import { useScreen } from "@/hooks/useScreen";
 import { isCN, t } from "@/lang/i18n";
 import { getNetworkModeList } from "@/services/apis/envImage";
 import { updateAnyInstanceConfig } from "@/services/apis/instance";
+import InstanceUploadLimit from "@/components/InstanceUploadLimit.vue";
 import StorageQuotaSettings from "@/components/StorageQuotaSettings.vue";
 import { useStorageQuotaOperation } from "@/hooks/useStorageQuotaOperation";
 import { dockerPortsArray } from "@/tools/common";
@@ -1517,24 +1518,20 @@ defineExpose({
                 </a-form-item>
               </a-col>
               <a-col :xs="24" :lg="8" :offset="0">
-                <a-form-item>
-                  <a-typography-title :level="5">
-                    {{ t("TXT_CODE_network_upload_limit") }}
-                  </a-typography-title>
+                <a-form-item :label="t('TXT_CODE_SHARED_INSTANCE')">
                   <a-typography-paragraph>
-                    <a-tooltip :title="t('TXT_CODE_network_upload_limit_help')" placement="top">
-                      <a-typography-text type="secondary" class="typography-text-ellipsis">
-                        {{ t("TXT_CODE_network_upload_limit_help") }}
-                      </a-typography-text>
-                    </a-tooltip>
+                    <a-typography-text type="secondary">
+                      {{ t("TXT_CODE_SHARED_INSTANCE_HELP") }}
+                    </a-typography-text>
                   </a-typography-paragraph>
-                  <a-input
-                    v-model:value="formData.instance.config.docker.uploadSpeedLimit"
-                    :allow-clear="true"
-                    :placeholder="t('TXT_CODE_network_upload_limit_placeholder')"
-                    suffix="KB/s"
-                  />
+                  <a-switch v-model:checked="formData.instance.config.docker.sharedBandwidth" />
                 </a-form-item>
+              </a-col>
+              <a-col :xs="24" :lg="8" :offset="0">
+                <InstanceUploadLimit
+                  v-model:value="formData.instance.config.docker.uploadSpeedLimit"
+                  :shared="formData.instance.config.docker.sharedBandwidth"
+                />
               </a-col>
               <a-col :xs="24" :lg="8" :offset="0">
                 <a-form-item>
@@ -1554,17 +1551,6 @@ defineExpose({
                     :placeholder="t('TXT_CODE_network_download_limit_placeholder')"
                     suffix="KB/s"
                   />
-                </a-form-item>
-              </a-col>
-
-              <a-col :xs="24" :lg="8" :offset="0">
-                <a-form-item :label="t('TXT_CODE_SHARED_INSTANCE')">
-                  <a-typography-paragraph>
-                    <a-typography-text type="secondary">
-                      {{ t("TXT_CODE_SHARED_INSTANCE_HELP") }}
-                    </a-typography-text>
-                  </a-typography-paragraph>
-                  <a-switch v-model:checked="formData.instance.config.docker.sharedBandwidth" />
                 </a-form-item>
               </a-col>
 

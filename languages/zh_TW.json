@@ -3343,6 +3343,8 @@
   "TXT_CODE_SHARED_UPLINK_HELP": "請填寫實測出口速率的 90–95%。此網卡的所有出站流量都會受此總速率限制，以便在本機執行優先順序排程；無法控制上游網路壅塞。",
   "TXT_CODE_SHARED_CAP": "共用上傳總上限",
   "TXT_CODE_SHARED_INSTANCE": "使用共用出站頻寬",
+  "TXT_CODE_SHARED_INSTANCE_CAP": "此執行個體共用上傳上限",
+  "TXT_CODE_SHARED_INSTANCE_CAP_HELP": "每個執行個體可設定不同的上傳上限，所有共用執行個體的合計仍受節點共用池上限限制。0 表示不額外限制此執行個體。修改後重新啟動執行個體生效。",
   "TXT_CODE_SHARED_INSTANCE_HELP": "加入節點最低優先順序的上傳共用池，所有成員共用總上限，單一執行個體限速仍會生效。需要單一 Docker 橋接網路，修改後重新啟動執行個體生效。",
   "TXT_CODE_SHARED_INVALID_CONFIG": "共用頻寬設定無效。請填寫網卡名稱和正整數速率，共用上限不得超過可用出口速率。",
   "TXT_CODE_SHARED_INVALID_INSTANCE": "執行個體共用頻寬設定無效。",

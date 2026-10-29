@@ -26,7 +26,21 @@ each instance. Packet bursts and protocol overhead affect measured throughput.
    traffic can be prioritized.
 4. Set the combined shared upload limit at or below the usable uplink speed.
 5. Enable **Use shared outbound bandwidth** in each participating instance's
-   resource limits, then restart those instances.
+   resource limits. Set **Shared upload limit for this instance** in Mbps, then
+   restart those instances. Each instance can have a different limit; 0 adds no
+   per-instance ceiling, while the node pool's combined cap still applies.
+
+For example, set the node's shared limit to 20 Mbps, instance A to 10 Mbps, and
+instance B to 20 Mbps. A can upload at up to 10 Mbps and B at up to 20 Mbps, but
+their combined upload cannot exceed 20 Mbps. These are ceilings, not reserved
+rates or a promise of a fixed split when both instances are busy. Normal traffic
+still has priority over both instances.
+
+The instance setting uses the existing container upload limit. The shared-mode
+editor displays Mbps and stores the equivalent KB/s value (10 Mbps = 1250 KB/s;
+20 Mbps = 2500 KB/s). Switching shared mode preserves the configured rate. This
+per-instance ceiling also applies to uploads to local services; the node's shared
+scheduler controls only outbound traffic on the selected uplink.
 
 Changing the pool speeds applies to active members. Stop all participating
 instances before disabling the pool or changing the interface. The node pool is
@@ -65,8 +79,9 @@ The ordinary Daemon suite includes configuration validation and real Docker
 lifecycle checks. The traffic tests additionally require root, `unshare`,
 `nsenter`, `iperf3`, `iptables`, `modprobe`, and an IFB-capable kernel. They create an isolated
 router, receiver and two bridge clients, with no connection to the host network.
-They verify combined IPv4/IPv6 limits, normal traffic priority, live rate changes,
-restart recovery, IFB compatibility, routing conflicts and cleanup.
+They verify combined IPv4/IPv6 limits, different per-instance ceilings, normal
+traffic priority, live rate changes, restart recovery, IFB compatibility, routing
+conflicts and cleanup.
 
 From `daemon/`, using the absolute path to Node if sudo has a different PATH:
 

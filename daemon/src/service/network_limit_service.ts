@@ -478,6 +478,7 @@ export class NetworkLimitService {
     return (
       text.includes("No such file or directory") ||
       text.includes("Cannot find device") ||
+      text.includes("Cannot delete qdisc with handle of zero") ||
       text.includes("Invalid argument") ||
       text.includes("No such process")
     );
