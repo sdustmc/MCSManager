@@ -70,6 +70,8 @@ export default class InstanceConfig implements IGlobalInstanceConfig {
     uploadSpeedLimit: 0,
     downloadSpeedLimit: 0,
     sharedBandwidth: false,
+    // Preserve absence so legacy shared-only configurations can be migrated on load.
+    sharedUploadSpeedLimit: undefined,
     ports: [],
     extraVolumes: [],
     capAdd: [],

@@ -29,6 +29,7 @@ import { AsyncTask } from "./async_task_service";
 import logger from "./log";
 import { NetworkLimitService } from "./network_limit_service";
 import { SharedBandwidthService } from "./shared_bandwidth_service";
+import { getInstanceUploadLimits } from "./instance_bandwidth";
 import { globalConfiguration } from "../entity/config";
 import InstanceSubsystem from "./system_instance";
 import storageQuotaService from "./storage_quota_service";
@@ -187,6 +188,7 @@ export class SetupDockerContainer extends AsyncTask {
     if (!dockerConfig) {
       throw new Error("Instance's Docker configuration is not found! ");
     }
+    const uploadLimits = getInstanceUploadLimits(dockerConfig);
     if (dockerConfig.sharedBandwidth) {
       const config = globalConfiguration.config.sharedBandwidth;
       if (!config?.enabled) throw new Error($t("TXT_CODE_SHARED_NOT_CONFIGURED"));
@@ -490,7 +492,7 @@ export class SetupDockerContainer extends AsyncTask {
     logger.info(`OPEN_PORT: ${JSON.stringify(publicPortArray)}`);
     logger.info(`Volume Mounts: ${JSON.stringify(mounts)}`);
     logger.info(`NET_ALIASES: ${JSON.stringify(dockerConfig.networkAliases)}`);
-    logger.info(`UPLOAD_LIMIT: ${dockerConfig.uploadSpeedLimit} KB/s`);
+    logger.info(`UPLOAD_LIMIT: ${uploadLimits.total} KB/s`);
     logger.info(`DOWNLOAD_LIMIT: ${dockerConfig.downloadSpeedLimit} KB/s`);
     logger.info(
       `MEM_LIMIT: ${maxMemory ? (maxMemory / 1024 / 1024).toFixed(2) : "--"} MB, Swap: ${
@@ -645,10 +647,10 @@ export class SetupDockerContainer extends AsyncTask {
     }
 
     // Apply bandwidth limits if configured
-    if (dockerConfig && (dockerConfig.uploadSpeedLimit || dockerConfig.downloadSpeedLimit)) {
+    if (uploadLimits.total || dockerConfig.downloadSpeedLimit) {
       try {
         await networkLimitService.setBandwidthLimit(this.container.id, {
-          uploadLimit: dockerConfig.uploadSpeedLimit,
+          uploadLimit: uploadLimits.total,
           downloadLimit: dockerConfig.downloadSpeedLimit
         });
         logger.info(
@@ -702,7 +704,11 @@ export class SetupDockerContainer extends AsyncTask {
     const service = SharedBandwidthService.getInstance();
     await service.configure(globalConfiguration.config.sharedBandwidth);
     const veth = await NetworkLimitService.getInstance().getSharedBandwidthVeth(container.id);
-    await service.join(container.id, veth);
+    const limits = getInstanceUploadLimits(this.instance.config.docker);
+    await service.join(container.id, veth, {
+      dedicatedKbps: limits.dedicated,
+      sharedKbps: limits.shared
+    });
   }
 
   public async attach(instance: Instance) {

@@ -125,6 +125,7 @@ export function createPortableTemplateFromInstance(
     uploadSpeedLimit: sourceDocker.uploadSpeedLimit,
     downloadSpeedLimit: sourceDocker.downloadSpeedLimit,
     sharedBandwidth: false,
+    sharedUploadSpeedLimit: 0,
     gpuEnabled: false,
     gpuCount: -1,
     gpuDeviceIds: [],

@@ -118,7 +118,7 @@ networkDescribe("shared outbound bandwidth in an isolated Linux network", () => 
     for (const child of children) child.kill("SIGKILL");
   });
 
-  const transfer = (pid?: number, ipv6 = false, seconds = 4) => {
+  const transfer = (pid?: number, ipv6 = false, seconds = 4, udp = true) => {
     const pending = (async () => {
       const testPort = String(++port);
       const server = spawn(
@@ -138,11 +138,7 @@ networkDescribe("shared outbound bandwidth in an isolated Linux network", () => 
         testPort,
         "-t",
         String(seconds),
-        "-u",
-        "-b",
-        "50M",
-        "-l",
-        "1200"
+        ...(udp ? ["-u", "-b", "50M", "-l", "1200"] : [])
       ];
       const output = pid ? await ns(pid, "iperf3", args) : await run("iperf3", args);
       const result = JSON.parse(output);
@@ -169,6 +165,153 @@ networkDescribe("shared outbound bandwidth in an isolated Linux network", () => 
       time: performance.now()
     };
   };
+
+  it.each([
+    [false, 1250, 20],
+    [true, 1250, 20],
+    [false, 2500, 30]
+  ] as const)(
+    "adds dedicated and shared allowances: IPv6=%s, shared KB/s=%s, total Mbps=%s",
+    async (ipv6, sharedKbps, totalMbps) => {
+      await service.join(firstId, "vethpoola", { dedicatedKbps: 1250, sharedKbps });
+      const before = await queueCounters();
+      const rate = await transfer(first, ipv6);
+      const after = await queueCounters();
+      const seconds = (after.time - before.time) / 1000;
+      const normal = ((after.normal - before.normal) * 8) / seconds / 1000000;
+      const shared = ((after.shared - before.shared) * 8) / seconds / 1000000;
+      expect(rate).toBeGreaterThan(totalMbps * 0.85);
+      expect(rate).toBeLessThan(totalMbps * 1.1);
+      expect(normal).toBeGreaterThan(8);
+      expect(normal).toBeLessThan(12);
+      expect(shared).toBeGreaterThan((sharedKbps / 125) * 0.8);
+      expect(shared).toBeLessThan((sharedKbps / 125) * 1.1);
+    },
+    15000
+  );
+
+  it("caps only the shared portions together and removes one member's classifiers", async () => {
+    await service.configure({ ...base, uplinkMbps: 50 });
+    await service.join(firstId, "vethpoola", { dedicatedKbps: 625, sharedKbps: 2500 });
+    await service.join(secondId, "vethpoolb", { dedicatedKbps: 1250, sharedKbps: 2500 });
+    const before = await queueCounters();
+    const rates = await Promise.all([transfer(first), transfer(second)]);
+    const after = await queueCounters();
+    expect(rates[0] + rates[1]).toBeGreaterThan(30);
+    expect(rates[0] + rates[1]).toBeLessThan(38);
+    const shared =
+      ((after.shared - before.shared) * 8) / ((after.time - before.time) / 1000) / 1000000;
+    expect(shared).toBeGreaterThan(17);
+    expect(shared).toBeLessThan(22);
+    await service.leave(firstId);
+    const qdiscs = JSON.parse(await run("tc", ["-j", "qdisc", "show", "dev", "wan0"]));
+    const priorityHandle = qdiscs.find((qdisc: { kind: string }) => qdisc.kind === "prio").handle;
+    const classifiers = await run("tc", [
+      "filter",
+      "show",
+      "dev",
+      "wan0",
+      "parent",
+      priorityHandle
+    ]);
+    expect(
+      classifiers
+        .split("\n")
+        .filter((line) => line.includes(" basic ") && line.includes(" handle "))
+    ).toHaveLength(2);
+    const remaining = await transfer(second);
+    expect(remaining).toBeGreaterThan(26);
+    expect(remaining).toBeLessThan(33);
+  }, 20000);
+
+  it("keeps the dedicated portion at normal priority when other services saturate the uplink", async () => {
+    await service.join(firstId, "vethpoola", { dedicatedKbps: 1250, sharedKbps: 1250 });
+    const before = await queueCounters();
+    const [mixed, normal] = await Promise.all([
+      transfer(first, false, 6),
+      transfer(undefined, false, 6)
+    ]);
+    const after = await queueCounters();
+    expect(mixed).toBeGreaterThan(8);
+    expect(mixed).toBeLessThan(13);
+    expect(normal).toBeGreaterThan(16);
+    const shared =
+      ((after.shared - before.shared) * 8) / ((after.time - before.time) / 1000) / 1000000;
+    expect(shared).toBeLessThan(3);
+  }, 20000);
+
+  it("restores both allowances after a daemon restart", async () => {
+    const limits = { dedicatedKbps: 1250, sharedKbps: 1250 };
+    await service.join(firstId, "vethpoola", limits);
+    service = new SharedBandwidthService(owner);
+    await service.configure(base);
+    await service.join(firstId, "vethpoola", limits);
+    const before = await queueCounters();
+    const rate = await transfer(first);
+    const after = await queueCounters();
+    expect(rate).toBeGreaterThan(17);
+    expect(rate).toBeLessThan(22);
+    expect(after.normal - before.normal).toBeGreaterThan(3500000);
+    expect(after.shared - before.shared).toBeGreaterThan(3500000);
+  }, 15000);
+
+  it("supports TCP uploads with both allowances", async () => {
+    const limiter = NetworkLimitService.getInstance();
+    const inventory = vi
+      .spyOn(limiter as any, "getContainerNetworkInfo")
+      .mockResolvedValue({ pid: first, networkMode: "bridge" });
+    const resolveVeth = vi
+      .spyOn(limiter as any, "resolveVethFromPid")
+      .mockResolvedValue("vethpoola");
+    try {
+      await run("modprobe", ["ifb", "numifbs=0"]);
+      await limiter.setBandwidthLimit(firstId, { uploadLimit: 2500 });
+      await service.join(firstId, "vethpoola");
+      const baseline = await transfer(first, false, 6, false);
+      await service.leave(firstId);
+      await service.join(firstId, "vethpoola", { dedicatedKbps: 1250, sharedKbps: 1250 });
+      const rate = await transfer(first, false, 6, false);
+      expect(rate).toBeGreaterThan(baseline * 0.85);
+      expect(rate).toBeGreaterThan(12);
+      expect(rate).toBeLessThan(23);
+    } finally {
+      await Promise.allSettled(transfers);
+      try {
+        await service.leave(firstId);
+        await limiter.clearBandwidthLimit(firstId);
+      } finally {
+        inventory.mockRestore();
+        resolveVeth.mockRestore();
+      }
+    }
+  }, 25000);
+
+  it.each(["-4", "-6"])(
+    "refuses conflicting mixed-instance routing marks for %s",
+    async (family) => {
+      await run("ip", [
+        family,
+        "rule",
+        "add",
+        "pref",
+        "1235",
+        "fwmark",
+        "0x10000/0x10000",
+        "lookup",
+        "100"
+      ]);
+      try {
+        await expect(
+          service.join(firstId, "vethpoola", { dedicatedKbps: 1250, sharedKbps: 1250 })
+        ).rejects.toThrow();
+        const qdiscs = await run("tc", ["-j", "qdisc", "show", "dev", "wan0"]);
+        expect(qdiscs).not.toContain(service.rootHandle);
+        expect(await run("ip", [family, "-j", "rule", "show"])).toContain("1235");
+      } finally {
+        await run("ip", [family, "rule", "del", "pref", "1235"]);
+      }
+    }
+  );
 
   it.each([false, true])(
     "caps two instances together, including IPv6=%s",
@@ -232,9 +375,7 @@ networkDescribe("shared outbound bandwidth in an isolated Linux network", () => 
       }
     }
     const links = JSON.parse(await run("ip", ["-j", "link", "show"]));
-    expect(
-      links.some((link: { ifname: string }) => link.ifname.startsWith("ifb_"))
-    ).toBe(false);
+    expect(links.some((link: { ifname: string }) => link.ifname.startsWith("ifb_"))).toBe(false);
   }, 40000);
 
   it.each(["host service", "nonshared instance"])(
@@ -329,9 +470,7 @@ networkDescribe("shared outbound bandwidth in an isolated Linux network", () => 
         priorityHandle
       ]);
       expect(
-        classifiers
-          .split("\n")
-          .filter((line) => line.includes(" fw ") && line.includes(" handle "))
+        classifiers.split("\n").filter((line) => line.includes(" fw ") && line.includes(" handle "))
       ).toHaveLength(1);
       const rate = await transfer(first);
       expect(rate).toBeGreaterThan(17);

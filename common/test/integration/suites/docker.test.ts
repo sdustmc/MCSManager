@@ -623,6 +623,57 @@ describe("docker instance + image integration (Linux + reachable dockerd only)",
     120000
   );
 
+  dockerIt(
+    "keeps dedicated and shared upload settings independent through the panel API",
+    async () => {
+      await ensureUsersOnce();
+      const uuid = await createDockerInstance(containerName("bandwidth"));
+      try {
+        const current = await requestPanel({
+          method: "GET",
+          path: "/instance",
+          cookie: u1().cookie,
+          token: u1().token,
+          query: { daemonId: di(), uuid }
+        });
+        const config = current.data.config;
+        for (const sharedBandwidth of [false, true, false]) {
+          const updated = await requestPanel({
+            method: "PUT",
+            path: "/instance",
+            key: world.key,
+            query: { daemonId: di(), uuid },
+            body: {
+              ...config,
+              docker: {
+                ...config.docker,
+                uploadSpeedLimit: 1250,
+                sharedUploadSpeedLimit: 1250,
+                sharedBandwidth
+              }
+            }
+          });
+          expect(updated.httpStatus).toBe(200);
+          const saved = await requestPanel({
+            method: "GET",
+            path: "/instance",
+            cookie: u1().cookie,
+            token: u1().token,
+            query: { daemonId: di(), uuid }
+          });
+          expect(saved.data.config.docker).toMatchObject({
+            uploadSpeedLimit: 1250,
+            sharedUploadSpeedLimit: 1250,
+            sharedBandwidth
+          });
+        }
+      } finally {
+        await deleteDockerInstance(uuid);
+      }
+    },
+    120000
+  );
+
   // 5) Final guard: no leaked labelled test containers after the run. Filters
   //    by the test container-name prefix (NOT the bare label) so pre-existing
   //    user containers (MCSM-*) are never touched. The afterAll best-effort

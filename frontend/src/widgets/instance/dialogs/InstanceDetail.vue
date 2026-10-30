@@ -1530,6 +1530,7 @@ defineExpose({
               <a-col :xs="24" :lg="8" :offset="0">
                 <InstanceUploadLimit
                   v-model:value="formData.instance.config.docker.uploadSpeedLimit"
+                  v-model:shared-value="formData.instance.config.docker.sharedUploadSpeedLimit"
                   :shared="formData.instance.config.docker.sharedBandwidth"
                 />
               </a-col>

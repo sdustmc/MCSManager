@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { mount, type VueWrapper } from "@vue/test-utils";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, ref } from "vue";
+import { defineComponent, h, nextTick, ref } from "vue";
 import InstanceUploadLimit from "../InstanceUploadLimit.vue";
 
-vi.mock("@/lang/i18n", () => ({ t: (key: string) => key }));
+vi.mock("@/lang/i18n", () => ({
+  t: (key: string, params?: { limit: number }) => (params ? `${key}:${params.limit}` : key)
+}));
 
 beforeAll(() => {
   vi.stubGlobal("matchMedia", (media: string) => ({
@@ -24,28 +26,34 @@ afterAll(() => {
 });
 
 const wrappers: VueWrapper[] = [];
-const editor = (value = 0, shared = true) => {
-  const wrapper = mount(InstanceUploadLimit, { props: { value, shared } });
+const editor = (value = 0, shared = true, sharedValue = 0) => {
+  const wrapper = mount(InstanceUploadLimit, { props: { value, shared, sharedValue } });
   wrappers.push(wrapper);
   return wrapper;
 };
 
-const boundEditor = (initialValue = 0) => {
+const boundEditor = (initialValue = 0, sharedInitially = false, sharedLimit = 0) => {
   const value = ref(initialValue);
+  const shared = ref(sharedInitially);
+  const sharedValue = ref(sharedLimit);
   const wrapper = mount(
     defineComponent({
       setup: () => () =>
         h(InstanceUploadLimit, {
           value: value.value,
-          shared: false,
+          shared: shared.value,
+          sharedValue: sharedValue.value,
           "onUpdate:value": (updated: number) => {
             value.value = updated;
+          },
+          "onUpdate:sharedValue": (updated: number) => {
+            sharedValue.value = updated;
           }
         })
     })
   );
   wrappers.push(wrapper);
-  return { wrapper, value };
+  return { wrapper, value, shared, sharedValue };
 };
 
 afterEach(() => {
@@ -96,14 +104,18 @@ describe("instance upload limit editor", () => {
     [10, 1250],
     [20, 2500],
     [0.001, 0.125]
-  ])("saves %s Mbps as %s KB/s for the existing API", async (mbps, kilobytes) => {
-    const wrapper = editor();
-    expect(wrapper.text()).toContain("TXT_CODE_SHARED_INSTANCE_CAP");
-    expect(wrapper.text()).toContain("Mbps");
-    await wrapper.get("input").setValue(String(mbps));
-    expect(wrapper.emitted("update:value")?.at(-1)).toEqual([kilobytes]);
-    expect(wrapper.props("value")).toBe(0);
-  });
+  ])(
+    "saves %s dedicated Mbps as %s KB/s without changing shared bandwidth",
+    async (mbps, kilobytes) => {
+      const wrapper = editor();
+      expect(wrapper.text()).toContain("TXT_CODE_DEDICATED_INSTANCE_CAP");
+      expect(wrapper.text()).toContain("Mbps");
+      await wrapper.get("input").setValue(String(mbps));
+      expect(wrapper.emitted("update:value")?.at(-1)).toEqual([kilobytes]);
+      expect(wrapper.props("value")).toBe(0);
+      expect(wrapper.emitted("update:sharedValue")).toBeUndefined();
+    }
+  );
 
   it("preserves and refreshes the stored limit when toggling shared mode", async () => {
     const wrapper = editor(1024, false);
@@ -119,21 +131,55 @@ describe("instance upload limit editor", () => {
   });
 
   it("removes only the per-instance ceiling when the shared input is cleared", async () => {
-    const wrapper = editor(1250);
-    await wrapper.get("input").setValue("");
-    expect(wrapper.emitted("update:value")?.at(-1)).toEqual([0]);
+    const wrapper = editor(1250, true, 1250);
+    await wrapper.findAll("input")[1].setValue("");
+    expect(wrapper.emitted("update:sharedValue")?.at(-1)).toEqual([0]);
+    expect(wrapper.emitted("update:value")).toBeUndefined();
+    expect(wrapper.props("value")).toBe(1250);
     expect(wrapper.props("shared")).toBe(true);
   });
 
   it("accepts a shared value after shared bandwidth is enabled", async () => {
     const wrapper = editor(0, false);
     await wrapper.setProps({ shared: true });
-    await wrapper.get("input").setValue("10");
-    expect(wrapper.emitted("update:value")?.at(-1)).toEqual([1250]);
+    await wrapper.findAll("input")[1].setValue("10");
+    expect(wrapper.emitted("update:sharedValue")?.at(-1)).toEqual([1250]);
+    expect(wrapper.emitted("update:value")).toBeUndefined();
+  });
+
+  it.each([
+    [10, 1250],
+    [20, 2500],
+    [0.001, 0.125]
+  ])("saves %s additional shared Mbps as %s KB/s", async (mbps, kilobytes) => {
+    const { wrapper, value, sharedValue } = boundEditor(1250, true);
+    await wrapper.findAll("input")[1].setValue(String(mbps));
+    expect(sharedValue.value).toBe(kilobytes);
+    expect(value.value).toBe(1250);
+  });
+
+  it("keeps 10 Mbps dedicated plus 10 Mbps shared independent across toggles and edits", async () => {
+    const { wrapper, value, shared, sharedValue } = boundEditor(1250, false, 1250);
+    expect(wrapper.get("input").element.value).toBe("1250");
+    shared.value = true;
+    await nextTick();
+    expect(wrapper.findAll("input").map((input) => Number(input.element.value))).toEqual([10, 10]);
+    expect(wrapper.text()).toContain("TXT_CODE_COMBINED_UPLOAD_CAP:20");
+    await wrapper.findAll("input")[1].setValue("20");
+    expect(sharedValue.value).toBe(2500);
+    expect(value.value).toBe(1250);
+    expect(wrapper.text()).toContain("TXT_CODE_COMBINED_UPLOAD_CAP:30");
+    shared.value = false;
+    await nextTick();
+    expect(wrapper.get("input").element.value).toBe("1250");
+    expect(sharedValue.value).toBe(2500);
+    shared.value = true;
+    await nextTick();
+    expect(wrapper.findAll("input").map((input) => Number(input.element.value))).toEqual([10, 20]);
   });
 
   it("shows different limits for different instances", () => {
-    expect(Number(editor(1250).get("input").element.value)).toBe(10);
-    expect(Number(editor(2500).get("input").element.value)).toBe(20);
+    expect(Number(editor(1250, true, 1250).findAll("input")[1].element.value)).toBe(10);
+    expect(Number(editor(1250, true, 2500).findAll("input")[1].element.value)).toBe(20);
   });
 });

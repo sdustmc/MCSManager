@@ -112,6 +112,8 @@ declare global {
     downloadSpeedLimit?: number;
     /** Share the node's lowest-priority outbound bandwidth pool. */
     sharedBandwidth?: boolean;
+    /** Additional lowest-priority upload ceiling in KB/s; zero means no per-instance ceiling. */
+    sharedUploadSpeedLimit?: number;
     /** Whether to enable GPU passthrough */
     gpuEnabled?: boolean;
     /** GPU count: -1 = all GPUs, 0 = none, positive integer = specific count */

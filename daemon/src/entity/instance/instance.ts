@@ -23,6 +23,7 @@ import StorageSubsystem from "../../common/system_storage";
 import { STEAM_CMD_PATH } from "../../const";
 import { $t } from "../../i18n";
 import javaManager from "../../service/java_manager";
+import { migrateSharedUploadLimit, parseUploadRate } from "../../service/instance_bandwidth";
 import logger from "../../service/log";
 import InstanceCommand from "../commands/base/command";
 import { commandStringToArray } from "../commands/base/command_parser";
@@ -143,6 +144,7 @@ export default class Instance extends EventEmitter {
     this.lock = false;
 
     this.config = config;
+    migrateSharedUploadLimit(this.config.docker);
 
     this.outputBuffer = new CircularBuffer<string>(
       globalConfiguration.config.outputBufferSize || 256
@@ -163,6 +165,9 @@ export default class Instance extends EventEmitter {
       typeof cfg.docker.sharedBandwidth !== "boolean"
     ) {
       throw new Error($t("TXT_CODE_SHARED_INVALID_INSTANCE"));
+    }
+    if (cfg?.docker?.sharedUploadSpeedLimit !== undefined) {
+      parseUploadRate(cfg.docker.sharedUploadSpeedLimit);
     }
     // If the instance type changes, default commands and lifecycle events must be reset
     if (cfg?.type && cfg?.type != this.config.type) {
@@ -281,6 +286,7 @@ export default class Instance extends EventEmitter {
       configureEntityParams(this.config.docker, cfg.docker, "memorySwappiness", Number);
       configureEntityParams(this.config.docker, cfg.docker, "memorySwap", Number);
       configureEntityParams(this.config.docker, cfg.docker, "uploadSpeedLimit", Number);
+      configureEntityParams(this.config.docker, cfg.docker, "sharedUploadSpeedLimit", Number);
       configureEntityParams(this.config.docker, cfg.docker, "downloadSpeedLimit", Number);
       if (cfg.docker.sharedBandwidth !== undefined) {
         this.config.docker.sharedBandwidth = cfg.docker.sharedBandwidth;
@@ -326,6 +332,7 @@ export default class Instance extends EventEmitter {
   public async restoreConfig(config: IGlobalInstanceConfig) {
     const previous = this.config;
     this.config = Object.assign(new InstanceConfig(), structuredClone(config));
+    migrateSharedUploadLimit(this.config.docker);
     const dispatchChanged =
       previous.type !== this.config.type ||
       previous.processType !== this.config.processType ||

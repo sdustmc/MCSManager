@@ -3,8 +3,11 @@ import { globalConfiguration } from "../entity/config";
 import { $t } from "../i18n";
 import logger from "./log";
 import { execWithSudo } from "./network_limit_service";
+import { parseUploadRate } from "./instance_bandwidth";
 
 const MARK = "0x40000000";
+// IPv4 forwarding resets skb priority; mark bits survive routing and source NAT.
+const MEMBER_MARK_MASK = "0x7fff0000";
 const MEMBER_PREF = "10";
 const MEMBER_HANDLE = "0x4d43";
 const DISABLED: ISharedBandwidthConfig = {
@@ -50,6 +53,14 @@ interface Qdisc {
 interface Member {
   veth: string;
   addedIngress: boolean;
+  slot?: number;
+  dedicatedKbps: number;
+  sharedKbps: number;
+}
+
+interface MemberLimits {
+  dedicatedKbps?: number;
+  sharedKbps?: number;
 }
 
 interface TrafficFilter {
@@ -72,6 +83,7 @@ export class SharedBandwidthService {
   private readonly priorityHandle: string;
   private readonly sharedHandle: string;
   private readonly normalHandle: string;
+  private readonly classifierChain: string;
 
   constructor(owner: string) {
     // Keep handles in a daemon-specific range, away from conventional 1:/10: QoS trees.
@@ -81,6 +93,7 @@ export class SharedBandwidthService {
     this.priorityHandle = `${(base + 1).toString(16)}:`;
     this.sharedHandle = `${(base + 2).toString(16)}:`;
     this.normalHandle = `${(base + 3).toString(16)}:`;
+    this.classifierChain = String(base);
   }
 
   public static getInstance(): SharedBandwidthService {
@@ -128,13 +141,25 @@ export class SharedBandwidthService {
     });
   }
 
-  public join(containerId: string, veth: string): Promise<void> {
+  public join(containerId: string, veth: string, limits: MemberLimits = {}): Promise<void> {
     return this.enqueue(async () => {
       if (!this.config.enabled) throw new Error($t("TXT_CODE_SHARED_NOT_CONFIGURED"));
       if (!/^[a-f0-9]{12,64}$/.test(containerId) || !validInterface(veth)) {
         throw new Error($t("TXT_CODE_SHARED_INVALID_INSTANCE"));
       }
-      if (this.members.get(containerId)?.veth === veth) return;
+      const dedicatedKbps = parseUploadRate(limits.dedicatedKbps);
+      const sharedKbps = parseUploadRate(limits.sharedKbps);
+      parseUploadRate(dedicatedKbps + sharedKbps);
+      const existing = this.members.get(containerId);
+      if (existing) {
+        if (
+          existing.veth === veth &&
+          existing.dedicatedKbps === dedicatedKbps &&
+          existing.sharedKbps === sharedKbps
+        )
+          return;
+        throw new Error($t("TXT_CODE_SHARED_STOP_FIRST"));
+      }
       const { stdout } = await execWithSudo("ip", ["-j", "-d", "link", "show", "dev", veth]);
       const link = JSON.parse(stdout)[0];
       if (link?.linkinfo?.info_kind !== "veth" || !link.master) {
@@ -156,10 +181,18 @@ export class SharedBandwidthService {
         qdiscs.some((qdisc) => qdisc.kind === "ingress") &&
         filters.some((filter) => this.isMemberFilter(filter)) &&
         filters.every((filter) => !filter.options || this.isMemberFilter(filter));
-      const member = { veth, addedIngress: needsIngress || inheritedIngress };
+      const member: Member = {
+        veth,
+        addedIngress: needsIngress || inheritedIngress,
+        slot: dedicatedKbps > 0 ? this.allocateSlot(containerId) : undefined,
+        dedicatedKbps,
+        sharedKbps
+      };
       let rootInstalled = false;
       let memberInstalled = false;
+      let classifiersStarted = false;
       try {
+        if (member.slot !== undefined) await this.preflight(this.config, Number(MEMBER_MARK_MASK));
         if (first) {
           await this.preflight(this.config);
           if (await this.checkRoot(this.config.interface)) {
@@ -187,11 +220,18 @@ export class SharedBandwidthService {
           await execWithSudo("tc", ["qdisc", "add", "dev", veth, "ingress"]);
           memberInstalled = true;
         }
-        // Continue to the existing upload/IFB filter; never replace its ingress qdisc.
-        if (!filters.some((filter) => this.isMemberFilter(filter))) {
-          await execWithSudo("tc", [
-            "filter",
-            "add",
+        if (member.slot !== undefined) {
+          classifiersStarted = true;
+          await this.setupMemberClassifiers(member);
+        }
+        // matchall cannot replace an existing rule on every supported kernel.
+        const installed = filters.find((filter) => this.isMemberFilter(filter));
+        const previousMark = installed?.options?.actions?.find(
+          (action) => action.kind === "skbedit"
+        )?.mark;
+        const desiredMark = member.slot === undefined ? MARK : this.memberMark(member.slot);
+        if (previousMark !== Number(desiredMark)) {
+          const selector = [
             "dev",
             veth,
             "ingress",
@@ -201,20 +241,44 @@ export class SharedBandwidthService {
             MEMBER_PREF,
             "handle",
             MEMBER_HANDLE,
-            "matchall",
-            "action",
-            "skbedit",
-            "mark",
-            `${MARK}/${MARK}`,
-            "continue"
-          ]);
-          memberInstalled = true;
+            "matchall"
+          ];
+          const markMember = (mark: string, mask: string) =>
+            execWithSudo("tc", [
+              "filter",
+              "add",
+              ...selector,
+              "action",
+              "skbedit",
+              "mark",
+              `${mark}/${mask}`,
+              "continue"
+            ]);
+          if (installed) await execWithSudo("tc", ["filter", "del", ...selector]);
+          try {
+            await markMember(desiredMark, member.slot === undefined ? MARK : MEMBER_MARK_MASK);
+          } catch (error) {
+            if (previousMark !== undefined) {
+              await markMember(
+                String(previousMark),
+                previousMark === Number(MARK) ? MARK : MEMBER_MARK_MASK
+              ).catch((restoreError) =>
+                logger.error("Failed to restore a shared bandwidth marker:", restoreError)
+              );
+            }
+            throw error;
+          }
+          if (!installed) memberInstalled = true;
         }
         this.members.set(containerId, member);
       } catch (error) {
         if (memberInstalled) {
           await this.cleanupMember(member).catch((cleanupError) =>
             logger.error("Failed to clean up a shared bandwidth member:", cleanupError)
+          );
+        } else if (classifiersStarted) {
+          await this.cleanupMemberClassifiers(member).catch((cleanupError) =>
+            logger.error("Failed to clean up prioritized upload classifiers:", cleanupError)
           );
         }
         if (rootInstalled) {
@@ -225,6 +289,109 @@ export class SharedBandwidthService {
         throw error;
       }
     });
+  }
+
+  private allocateSlot(containerId: string): number {
+    const occupied = new Set(Array.from(this.members.values(), (member) => member.slot));
+    const initial = parseInt(
+      createHash("sha256").update(containerId).digest("hex").slice(0, 4),
+      16
+    );
+    for (let offset = 0; offset < 16383; offset++) {
+      const slot = ((initial + offset) % 16383) + 1;
+      if (!occupied.has(slot)) return slot;
+    }
+    throw new Error($t("TXT_CODE_SHARED_INVALID_INSTANCE"));
+  }
+
+  private memberMark(slot: number): string {
+    return `0x${(Number(MARK) + slot * 65536).toString(16)}`;
+  }
+
+  private async setupMemberClassifiers(member: Member): Promise<void> {
+    const mark = this.memberMark(member.slot!);
+    for (const [pref, band, rate, exceed] of [
+      ["10", "1", member.dedicatedKbps, "continue"],
+      ["20", "2", member.sharedKbps, "drop"]
+    ] as const) {
+      await execWithSudo("tc", [
+        "filter",
+        "replace",
+        "dev",
+        this.config.interface,
+        "parent",
+        this.priorityHandle,
+        "chain",
+        this.classifierChain,
+        "protocol",
+        "all",
+        "pref",
+        pref,
+        "handle",
+        `0x${member.slot!.toString(16)}`,
+        "basic",
+        "match",
+        `meta(nf_mark mask ${MEMBER_MARK_MASK} eq ${mark})`,
+        "flowid",
+        `${this.priorityHandle}${band}`,
+        ...(rate > 0
+          ? [
+              "action",
+              "police",
+              "rate",
+              `${Number((rate * 8).toFixed(3))}kbit`,
+              "burst",
+              "64kb",
+              "mtu",
+              "64kb",
+              "conform-exceed",
+              `${exceed}/pipe`
+            ]
+          : []),
+        "action",
+        "skbedit",
+        "mark",
+        `0/${MEMBER_MARK_MASK}`,
+        "pass"
+      ]);
+    }
+  }
+
+  private async cleanupMemberClassifiers(member: Member): Promise<void> {
+    if (member.slot === undefined) return;
+    const qdiscs = await this.qdiscs(this.config.interface);
+    if (
+      !qdiscs.some(
+        (qdisc) => qdisc.root && qdisc.handle === this.rootHandle && qdisc.kind === "tbf"
+      ) ||
+      !qdiscs.some((qdisc) => qdisc.handle === this.priorityHandle && qdisc.kind === "prio")
+    )
+      return;
+    for (const pref of ["10", "20"]) {
+      const selector = [
+        "dev",
+        this.config.interface,
+        "parent",
+        this.priorityHandle,
+        "chain",
+        this.classifierChain,
+        "protocol",
+        "all",
+        "pref",
+        pref
+      ];
+      const { stdout } = await execWithSudo("tc", ["filter", "show", ...selector]);
+      if (new RegExp(`\\bhandle 0x${member.slot.toString(16)}\\b`).test(stdout)) {
+        await execWithSudo("tc", [
+          "filter",
+          "del",
+          ...selector,
+          "handle",
+          `0x${member.slot.toString(16)}`,
+          "basic"
+        ]);
+      }
+    }
   }
 
   public leave(containerId: string): Promise<void> {
@@ -282,7 +449,12 @@ export class SharedBandwidthService {
     return false;
   }
 
-  private async preflight(config: ISharedBandwidthConfig): Promise<void> {
+  private async preflight(
+    config: ISharedBandwidthConfig,
+    markMask = Array.from(this.members.values()).some((member) => member.slot !== undefined)
+      ? Number(MEMBER_MARK_MASK)
+      : Number(MARK)
+  ): Promise<void> {
     if (process.platform !== "linux") throw new Error($t("TXT_CODE_SHARED_DOCKER_REQUIRED"));
     await execWithSudo("ip", ["-j", "link", "show", "dev", config.interface]);
     await this.checkRoot(config.interface);
@@ -294,7 +466,7 @@ export class SharedBandwidthService {
         rules.some(
           (rule) =>
             rule.fwmark !== undefined &&
-            ((Number(rule.fwmask ?? "0xffffffff") >>> 0) & Number(MARK)) !== 0
+            ((Number(rule.fwmask ?? "0xffffffff") >>> 0) & markMask) !== 0
         )
       ) {
         throw new Error($t("TXT_CODE_SHARED_MARK_CONFLICT"));
@@ -372,7 +544,42 @@ export class SharedBandwidthService {
       this.sharedHandle,
       ...this.rateArgs(this.config.sharedMbps)
     ]);
-    // Consume our private mark at the uplink; preserve every other mark bit.
+    // Rebuild only this daemon's chain when restoring an interrupted installation.
+    await execWithSudo("tc", [
+      "filter",
+      "del",
+      "dev",
+      device,
+      "parent",
+      this.priorityHandle,
+      "chain",
+      this.classifierChain
+    ]);
+    await execWithSudo("tc", [
+      "filter",
+      "replace",
+      "dev",
+      device,
+      "parent",
+      this.priorityHandle,
+      "chain",
+      this.classifierChain,
+      "protocol",
+      "all",
+      "pref",
+      "100",
+      "handle",
+      "1",
+      "matchall",
+      "classid",
+      `${this.priorityHandle}2`,
+      "action",
+      "skbedit",
+      "mark",
+      `0/${MARK}`,
+      "pass"
+    ]);
+    // Classify after the per-container IFB shaper and source NAT, then consume metadata.
     await execWithSudo("tc", [
       "filter",
       "replace",
@@ -390,13 +597,14 @@ export class SharedBandwidthService {
       "classid",
       `${this.priorityHandle}2`,
       "action",
-      "skbedit",
-      "mark",
-      `0/${MARK}`
+      "goto",
+      "chain",
+      this.classifierChain
     ]);
   }
 
   private async cleanupMember(member: Member): Promise<void> {
+    await this.cleanupMemberClassifiers(member);
     const { stdout } = await execWithSudo("ip", ["-j", "link", "show"]);
     const links = JSON.parse(stdout) as { ifname: string }[];
     if (!links.some((link) => link.ifname === member.veth)) return;
@@ -447,7 +655,7 @@ export class SharedBandwidthService {
       filter.options.actions?.some(
         (action) =>
           action.kind === "skbedit" &&
-          action.mark === Number(MARK) &&
+          (Number(action.mark) & Number(MARK)) !== 0 &&
           action.control_action?.type === "continue"
       ) === true
     );
