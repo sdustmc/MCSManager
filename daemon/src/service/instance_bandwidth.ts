@@ -1,5 +1,14 @@
 import { $t } from "../i18n";
 
+export function hasBandwidthChanges(
+  previous: IGlobalInstanceDockerConfig,
+  next: IGlobalInstanceDockerConfig
+): boolean {
+  return (
+    ["uploadSpeedLimit", "downloadSpeedLimit", "sharedUploadSpeedLimit", "sharedBandwidth"] as const
+  ).some((key) => previous[key] !== next[key]);
+}
+
 export function parseUploadRate(value: unknown): number {
   if (value === undefined) return 0;
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 125000000) {

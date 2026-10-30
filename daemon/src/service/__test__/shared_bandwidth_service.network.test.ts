@@ -166,6 +166,86 @@ networkDescribe("shared outbound bandwidth in an isolated Linux network", () => 
     };
   };
 
+  it("changes rates, switches sharing, and removes caps without replacing the uplink scheduler", async () => {
+    const limiter = NetworkLimitService.getInstance();
+    const inventory = vi
+      .spyOn(limiter as any, "getContainerNetworkInfo")
+      .mockResolvedValue({ pid: first, networkMode: "bridge" });
+    const resolveVeth = vi
+      .spyOn(limiter as any, "resolveVethFromPid")
+      .mockResolvedValue("vethpoola");
+    try {
+      await run("modprobe", ["ifb", "numifbs=0"]);
+      await service.join(secondId, "vethpoolb");
+      await limiter.setBandwidthLimit(firstId, { uploadLimit: 2500, downloadLimit: 1250 });
+      await service.join(firstId, "vethpoola", { dedicatedKbps: 1250, sharedKbps: 1250 });
+      const before = await queueCounters();
+      expect(await transfer(first)).toBeGreaterThan(17);
+      await limiter.setBandwidthLimit(firstId, { uploadLimit: 1250, downloadLimit: 625 });
+      await service.join(firstId, "vethpoola", { dedicatedKbps: 625, sharedKbps: 625 });
+      const lower = await transfer(first);
+      expect(lower).toBeGreaterThan(8);
+      expect(lower).toBeLessThan(12);
+      await limiter.setBandwidthLimit(firstId, { uploadLimit: 625 });
+      await service.join(firstId, "vethpoola", { dedicatedKbps: 0, sharedKbps: 625 });
+      const sharedOnly = await transfer(first);
+      expect(sharedOnly).toBeGreaterThan(4);
+      expect(sharedOnly).toBeLessThan(6);
+      await limiter.setBandwidthLimit(firstId, { uploadLimit: 1875, downloadLimit: 1250 });
+      await service.join(firstId, "vethpoola", { dedicatedKbps: 1250, sharedKbps: 625 });
+      const raised = await transfer(first);
+      expect(raised).toBeGreaterThan(13);
+      expect(raised).toBeLessThan(17);
+      const filters = JSON.parse(
+        await run("tc", ["-j", "filter", "show", "dev", "vethpoola", "ingress"])
+      );
+      expect(
+        filters.filter(
+          (filter: any) => filter.options?.actions?.some((action: any) => action.kind === "mirred")
+        )
+      ).toHaveLength(1);
+      await limiter.setBandwidthLimit(firstId, { uploadLimit: 0, downloadLimit: 0 });
+      expect(await run("tc", ["filter", "show", "dev", "vethpoola", "ingress"])).toContain(
+        "skbedit"
+      );
+      await service.leave(firstId);
+      const ordinary = await transfer(first);
+      expect(ordinary).toBeGreaterThan(25);
+      expect(ordinary).toBeLessThan(34);
+      expect((await queueCounters()).normal).toBeGreaterThan(before.normal);
+      expect(await transfer(second)).toBeGreaterThan(17);
+    } finally {
+      try {
+        await service.leave(firstId);
+        await limiter.clearBandwidthLimit(firstId);
+      } finally {
+        inventory.mockRestore();
+        resolveVeth.mockRestore();
+      }
+    }
+  }, 45000);
+
+  it("restores the previous classifiers if a live rate update fails after changing tc rules", async () => {
+    await service.join(firstId, "vethpoola", { dedicatedKbps: 1250, sharedKbps: 1250 });
+    const install = (service as any).setupMemberClassifiers.bind(service);
+    const failure = vi
+      .spyOn(service as any, "setupMemberClassifiers")
+      .mockImplementationOnce(async (member) => {
+        await install(member);
+        throw new Error("Injected live classifier failure");
+      });
+    try {
+      await expect(
+        service.join(firstId, "vethpoola", { dedicatedKbps: 625, sharedKbps: 625 })
+      ).rejects.toThrow();
+      const rate = await transfer(first);
+      expect(rate).toBeGreaterThan(17);
+      expect(rate).toBeLessThan(22);
+    } finally {
+      failure.mockRestore();
+    }
+  }, 15000);
+
   it.each([
     [false, 1250, 20],
     [true, 1250, 20],

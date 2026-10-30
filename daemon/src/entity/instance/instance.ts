@@ -23,7 +23,11 @@ import StorageSubsystem from "../../common/system_storage";
 import { STEAM_CMD_PATH } from "../../const";
 import { $t } from "../../i18n";
 import javaManager from "../../service/java_manager";
-import { migrateSharedUploadLimit, parseUploadRate } from "../../service/instance_bandwidth";
+import {
+  hasBandwidthChanges,
+  migrateSharedUploadLimit,
+  parseUploadRate
+} from "../../service/instance_bandwidth";
 import logger from "../../service/log";
 import InstanceCommand from "../commands/base/command";
 import { commandStringToArray } from "../commands/base/command_parser";
@@ -129,6 +133,7 @@ export default class Instance extends EventEmitter {
 
   private outputLoopTask?: NodeJS.Timeout;
   private outputBuffer: CircularBuffer<string>;
+  private configUpdating = false;
 
   // When initializing an instance, the instance must be initialized through uuid and configuration class, otherwise the instance will be unavailable
   constructor(instanceUuid: string, config: InstanceConfig) {
@@ -329,17 +334,70 @@ export default class Instance extends EventEmitter {
     }
   }
 
+  public async updateConfig(config: any): Promise<void> {
+    if (this.configUpdating) throw new Error($t("TXT_CODE_ca030197"));
+    this.configUpdating = true;
+    const previous = structuredClone(this.config);
+    try {
+      if (
+        this.config.processType === "docker" &&
+        hasBandwidthChanges(previous.docker, { ...previous.docker, ...config?.docker }) &&
+        ![Instance.STATUS_STOP, Instance.STATUS_RUNNING].includes(this.status())
+      ) {
+        throw new Error($t("TXT_CODE_ca030197"));
+      }
+      this.parameters(config, false);
+      await this.updateBandwidth(previous.docker, this.config.docker);
+      this.parameters({});
+    } catch (error) {
+      try {
+        await this.restoreConfig(previous);
+      } catch (rollbackError) {
+        logger.error(
+          "Failed to restore instance configuration and bandwidth:",
+          this.instanceUuid,
+          rollbackError
+        );
+        throw new Error($t("TXT_CODE_BANDWIDTH_ROLLBACK_FAILED"));
+      }
+      throw error;
+    } finally {
+      this.configUpdating = false;
+    }
+  }
+
+  private async updateBandwidth(
+    previous: IGlobalInstanceDockerConfig,
+    next: IGlobalInstanceDockerConfig
+  ): Promise<void> {
+    if (
+      this.config.processType !== "docker" ||
+      !hasBandwidthChanges(previous, next) ||
+      this.status() === Instance.STATUS_STOP
+    )
+      return;
+    if (this.status() !== Instance.STATUS_RUNNING || !this.process?.updateBandwidth) {
+      throw new Error($t("TXT_CODE_ca030197"));
+    }
+    await this.process.updateBandwidth(next);
+  }
+
   public async restoreConfig(config: IGlobalInstanceConfig) {
     const previous = this.config;
-    this.config = Object.assign(new InstanceConfig(), structuredClone(config));
-    migrateSharedUploadLimit(this.config.docker);
-    const dispatchChanged =
-      previous.type !== this.config.type ||
-      previous.processType !== this.config.processType ||
-      previous.enableRcon !== this.config.enableRcon ||
-      previous.terminalOption?.pty !== this.config.terminalOption?.pty;
-    if (dispatchChanged) await this.forceExec(new FunctionDispatcher());
-    StorageSubsystem.store("InstanceConfig", this.instanceUuid, this.config);
+    const next = Object.assign(new InstanceConfig(), structuredClone(config));
+    migrateSharedUploadLimit(next.docker);
+    try {
+      await this.updateBandwidth(previous.docker, next.docker);
+    } finally {
+      this.config = next;
+      const dispatchChanged =
+        previous.type !== this.config.type ||
+        previous.processType !== this.config.processType ||
+        previous.enableRcon !== this.config.enableRcon ||
+        previous.terminalOption?.pty !== this.config.terminalOption?.pty;
+      if (dispatchChanged) await this.forceExec(new FunctionDispatcher());
+      StorageSubsystem.store("InstanceConfig", this.instanceUuid, this.config);
+    }
   }
 
   allocatePort(cfg: InstanceConfig) {

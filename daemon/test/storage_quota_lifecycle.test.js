@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { PassThrough } = require("node:stream");
+const { once } = require("node:events");
 const { test, beforeEach, afterEach, mock } = require("node:test");
 const ctx = require("./helpers/quota_context");
 const { Instance, InstanceConfig, Dispatcher, routerApp, httpRouter } =
@@ -184,8 +185,9 @@ test("a container removed outside the daemon emits exit after its wait request f
   adapter.on("exit", (code) => exits.push(code));
   try {
     await adapter.start({ isTty: false, h: 24, w: 80 }, container);
+    const exited = once(adapter, "exit", { signal: AbortSignal.timeout(5000) });
     onWait(missing);
-    await new Promise(setImmediate);
+    await exited;
 
     assert.deepEqual(exits, [0]);
   } finally {

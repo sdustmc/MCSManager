@@ -295,6 +295,108 @@ afterAll(async () => {
   fs.removeSync(tmpDir);
 }, 60000);
 
+describe("live bandwidth configuration through instance/update", () => {
+  const running = (name: string, updateBandwidth: any) => {
+    const { inst, uuid } = createInstance({
+      ...dockerConfig(name),
+      docker: { uploadSpeedLimit: 1250, sharedUploadSpeedLimit: 1250, sharedBandwidth: false }
+    });
+    inst.process = { updateBandwidth };
+    inst.status(Instance.STATUS_RUNNING);
+    return { inst, uuid };
+  };
+  const release = (inst: any) => {
+    inst.process = undefined;
+    inst.status(Instance.STATUS_STOP);
+  };
+
+  it("acknowledges and persists only after the running process applies the rules", async () => {
+    let finish!: () => void;
+    const update = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    const { inst, uuid } = running("live-save", update);
+    try {
+      const process = inst.process;
+      const { socket } = invoke("instance/update", {
+        instanceUuid: uuid,
+        config: { docker: { sharedBandwidth: true, sharedUploadSpeedLimit: 2500 } }
+      });
+      await flush();
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(packetsFor(socket, "instance/update")).toHaveLength(0);
+      const file = path.join(tmpDir, "data", "InstanceConfig", `${uuid}.json`);
+      expect(fs.readJsonSync(file).docker.sharedBandwidth).toBe(false);
+      const rejected = invoke("instance/update", {
+        instanceUuid: uuid,
+        config: { docker: { uploadSpeedLimit: 500 } }
+      });
+      await flush();
+      expect(packetsFor(rejected.socket, "instance/update")[0].status).not.toBe(200);
+      finish();
+      await waitFor(
+        () => packetsFor(socket, "instance/update").length > 0,
+        2000,
+        "live save acknowledgement"
+      );
+      expect(packetsFor(socket, "instance/update")[0].status).toBe(200);
+      expect(fs.readJsonSync(file).docker.sharedUploadSpeedLimit).toBe(2500);
+      expect(inst.process).toBe(process);
+      expect(inst.startCount).toBe(0);
+    } finally {
+      finish?.();
+      release(inst);
+    }
+  });
+
+  it("returns a save error and restores persisted settings and running rules after failure", async () => {
+    const update = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Injected tc failure"))
+      .mockResolvedValue(undefined);
+    const { inst, uuid } = running("live-rollback", update);
+    try {
+      const { socket } = invoke("instance/update", {
+        instanceUuid: uuid,
+        config: { docker: { uploadSpeedLimit: 2500 } }
+      });
+      await waitFor(
+        () => packetsFor(socket, "instance/update").length > 0,
+        2000,
+        "failed save acknowledgement"
+      );
+      expect(packetsFor(socket, "instance/update")[0].status).not.toBe(200);
+      expect(update).toHaveBeenCalledTimes(2);
+      expect(update.mock.calls[1][0].uploadSpeedLimit).toBe(1250);
+      expect(inst.config.docker.uploadSpeedLimit).toBe(1250);
+      expect(
+        fs.readJsonSync(path.join(tmpDir, "data", "InstanceConfig", `${uuid}.json`)).docker
+          .uploadSpeedLimit
+      ).toBe(1250);
+      await inst.updateConfig({ docker: { uploadSpeedLimit: 1875 } });
+      expect(inst.config.docker.uploadSpeedLimit).toBe(1875);
+    } finally {
+      release(inst);
+    }
+  });
+
+  it("rejects bandwidth changes during startup without changing the stored configuration", async () => {
+    const update = vi.fn();
+    const { inst, uuid } = running("live-starting", update);
+    try {
+      inst.status(Instance.STATUS_STARTING);
+      await expect(inst.updateConfig({ docker: { uploadSpeedLimit: 2500 } })).rejects.toThrow();
+      expect(update).not.toHaveBeenCalled();
+      expect(inst.config.docker.uploadSpeedLimit).toBe(1250);
+    } finally {
+      release(inst);
+    }
+  });
+});
+
 describe("Docker instance lifecycle (real)", () => {
   // The container is created/started *before* the attach stream is wired up, so
   // the fixture's one-shot `READY:` banner can be lost. Liveness is therefore

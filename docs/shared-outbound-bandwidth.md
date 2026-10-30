@@ -35,8 +35,10 @@ Packet bursts and protocol overhead affect measured throughput.
 4. Set the combined shared upload limit at or below the usable uplink speed.
 5. Enable **Use shared outbound bandwidth** in each participating instance's
    resource limits. The original upload rate remains the **Dedicated upload
-   allowance**. Set **Additional shared upload limit** separately, then restart
-   the instance. Toggling the switch preserves both configured values.
+   allowance**. Set **Additional shared upload limit** separately and save.
+   Running instances apply bandwidth changes immediately without restarting.
+   Toggling the switch preserves both configured values. Failed updates restore
+   the previous configuration and bandwidth rules and report an error.
 6. A dedicated allowance of 0 selects shared-only traffic. A shared allowance of
    0 adds no per-instance shared ceiling; the node pool's combined cap still applies.
 

@@ -152,13 +152,9 @@ export class SharedBandwidthService {
       parseUploadRate(dedicatedKbps + sharedKbps);
       const existing = this.members.get(containerId);
       if (existing) {
-        if (
-          existing.veth === veth &&
-          existing.dedicatedKbps === dedicatedKbps &&
-          existing.sharedKbps === sharedKbps
-        )
-          return;
-        throw new Error($t("TXT_CODE_SHARED_STOP_FIRST"));
+        if (existing.veth !== veth) throw new Error($t("TXT_CODE_SHARED_STOP_FIRST"));
+        await this.updateMember(containerId, existing, dedicatedKbps, sharedKbps);
+        return;
       }
       const { stdout } = await execWithSudo("ip", ["-j", "-d", "link", "show", "dev", veth]);
       const link = JSON.parse(stdout)[0];
@@ -224,52 +220,9 @@ export class SharedBandwidthService {
           classifiersStarted = true;
           await this.setupMemberClassifiers(member);
         }
-        // matchall cannot replace an existing rule on every supported kernel.
         const installed = filters.find((filter) => this.isMemberFilter(filter));
-        const previousMark = installed?.options?.actions?.find(
-          (action) => action.kind === "skbedit"
-        )?.mark;
-        const desiredMark = member.slot === undefined ? MARK : this.memberMark(member.slot);
-        if (previousMark !== Number(desiredMark)) {
-          const selector = [
-            "dev",
-            veth,
-            "ingress",
-            "protocol",
-            "all",
-            "pref",
-            MEMBER_PREF,
-            "handle",
-            MEMBER_HANDLE,
-            "matchall"
-          ];
-          const markMember = (mark: string, mask: string) =>
-            execWithSudo("tc", [
-              "filter",
-              "add",
-              ...selector,
-              "action",
-              "skbedit",
-              "mark",
-              `${mark}/${mask}`,
-              "continue"
-            ]);
-          if (installed) await execWithSudo("tc", ["filter", "del", ...selector]);
-          try {
-            await markMember(desiredMark, member.slot === undefined ? MARK : MEMBER_MARK_MASK);
-          } catch (error) {
-            if (previousMark !== undefined) {
-              await markMember(
-                String(previousMark),
-                previousMark === Number(MARK) ? MARK : MEMBER_MARK_MASK
-              ).catch((restoreError) =>
-                logger.error("Failed to restore a shared bandwidth marker:", restoreError)
-              );
-            }
-            throw error;
-          }
-          if (!installed) memberInstalled = true;
-        }
+        await this.setMemberMarker(member, installed);
+        if (!installed) memberInstalled = true;
         this.members.set(containerId, member);
       } catch (error) {
         if (memberInstalled) {
@@ -289,6 +242,93 @@ export class SharedBandwidthService {
         throw error;
       }
     });
+  }
+
+  private async updateMember(
+    containerId: string,
+    previous: Member,
+    dedicatedKbps: number,
+    sharedKbps: number
+  ): Promise<void> {
+    const next: Member = {
+      ...previous,
+      dedicatedKbps,
+      sharedKbps,
+      slot: dedicatedKbps > 0 ? previous.slot ?? this.allocateSlot(containerId) : undefined
+    };
+    if (next.slot !== undefined) await this.preflight(this.config, Number(MEMBER_MARK_MASK));
+    if (!(await this.checkRoot(this.config.interface))) {
+      throw new Error($t("TXT_CODE_SHARED_QOS_CONFLICT"));
+    }
+    const marker = async (member: Member) =>
+      this.setMemberMarker(
+        member,
+        (await this.memberFilters(member.veth)).find((filter) => this.isMemberFilter(filter))
+      );
+    try {
+      if (next.slot !== undefined) await this.setupMemberClassifiers(next);
+      await marker(next);
+      if (previous.slot !== next.slot) await this.cleanupMemberClassifiers(previous);
+      this.members.set(containerId, next);
+    } catch (error) {
+      try {
+        if (next.slot !== previous.slot) await this.cleanupMemberClassifiers(next);
+        if (previous.slot !== undefined) await this.setupMemberClassifiers(previous);
+        await marker(previous);
+      } catch (rollbackError) {
+        logger.error(
+          "Failed to restore shared bandwidth for container:",
+          containerId,
+          rollbackError
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async setMemberMarker(member: Member, installed?: TrafficFilter): Promise<void> {
+    const previousMark = installed?.options?.actions?.find((action) => action.kind === "skbedit")
+      ?.mark;
+    const desiredMark = member.slot === undefined ? MARK : this.memberMark(member.slot);
+    if (previousMark === Number(desiredMark)) return;
+    // matchall cannot replace an existing rule on every supported kernel.
+    const selector = [
+      "dev",
+      member.veth,
+      "ingress",
+      "protocol",
+      "all",
+      "pref",
+      MEMBER_PREF,
+      "handle",
+      MEMBER_HANDLE,
+      "matchall"
+    ];
+    const install = (mark: string, mask: string) =>
+      execWithSudo("tc", [
+        "filter",
+        "add",
+        ...selector,
+        "action",
+        "skbedit",
+        "mark",
+        `${mark}/${mask}`,
+        "continue"
+      ]);
+    if (installed) await execWithSudo("tc", ["filter", "del", ...selector]);
+    try {
+      await install(desiredMark, member.slot === undefined ? MARK : MEMBER_MARK_MASK);
+    } catch (error) {
+      if (previousMark !== undefined) {
+        await install(
+          String(previousMark),
+          previousMark === Number(MARK) ? MARK : MEMBER_MARK_MASK
+        ).catch((rollbackError) =>
+          logger.error("Failed to restore a shared bandwidth marker:", rollbackError)
+        );
+      }
+      throw error;
+    }
   }
 
   private allocateSlot(containerId: string): number {

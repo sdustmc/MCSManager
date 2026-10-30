@@ -410,6 +410,27 @@ test("rollback of a running quota resize preserves its existing lifecycle tasks"
   assert.deepEqual(instance.lifeCycleTaskManager.lifeCycleTask, tasks);
 });
 
+test("a combined running quota and bandwidth update restores both when quota application fails", async () => {
+  const { Instance, InstanceConfig } = loadInstanceRuntime();
+  const config = new InstanceConfig();
+  config.cwd = path.join(root, "xfs/live-bandwidth");
+  fs.mkdirSync(config.cwd, { recursive: true });
+  config.basePort = 25565;
+  config.processType = "docker";
+  Object.assign(config.docker, { maxSpace: 10, enableHardStorageQuota: true, uploadSpeedLimit: 1250, sharedUploadSpeedLimit: 0 });
+  const instance = new Instance("live-bandwidth", config);
+  instance.status(Instance.STATUS_RUNNING);
+  const rates = [];
+  instance.process = { updateBandwidth: async (docker) => { rates.push(docker.uploadSpeedLimit); } };
+  faults.apply = async (size) => { if (size === 20) throw new Error("Injected quota failure"); };
+  operations.update(instance, { docker: { maxSpace: 20, uploadSpeedLimit: 2500 } }, [instance]);
+  await operations.wait(instance);
+  assert.deepEqual(rates, [2500, 1250]);
+  assert.equal(instance.config.docker.uploadSpeedLimit, 1250);
+  assert.equal(instance.config.docker.maxSpace, 10);
+  assert.equal(operations.hasPendingRecovery(instance), false);
+});
+
 test("starting, stopping and busy instances cannot accept quota jobs", () => {
   const instance = createInstance();
   for (const status of [-1, 1, 2]) {

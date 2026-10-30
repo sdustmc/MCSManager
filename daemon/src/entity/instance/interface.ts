@@ -6,4 +6,5 @@ export interface IInstanceProcess extends EventEmitter {
   kill: (signal?: any) => any;
   destroy: () => void;
   write: (data?: any) => any;
+  updateBandwidth?: (config: IGlobalInstanceDockerConfig) => Promise<void>;
 }

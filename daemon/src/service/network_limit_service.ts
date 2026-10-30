@@ -174,12 +174,15 @@ export class NetworkLimitService {
     const uploadKbit = limit.uploadLimit && limit.uploadLimit > 0 ? limit.uploadLimit * 8 : 0;
     const downloadKbit =
       limit.downloadLimit && limit.downloadLimit > 0 ? limit.downloadLimit * 8 : 0;
-    if (uploadKbit === 0 && downloadKbit === 0) return;
+    if (uploadKbit === 0 && downloadKbit === 0) {
+      await this.clearBandwidthLimit(containerId);
+      return;
+    }
 
     await this.checkRequiredCommands();
 
     const info = await this.getContainerNetworkInfo(containerId);
-    if (!info) return;
+    if (!info) throw new Error($t("TXT_CODE_SHARED_VETH_FAILED"));
     const { pid, networkMode } = info;
     if (networkMode === "host" || networkMode === "none") {
       logger.info(`Container ${containerId} network mode is ${networkMode}, skip bandwidth limit.`);
@@ -187,7 +190,9 @@ export class NetworkLimitService {
     }
 
     // Give the container network time to appear on the host (veth may lag after start).
-    await new Promise((r) => setTimeout(r, 3000));
+    if (!this.stateByContainer.has(containerId)) {
+      await new Promise((r) => setTimeout(r, 3000));
+    }
 
     const veth = await this.resolveVethFromPid(containerId, pid);
     if (!veth) {
@@ -195,20 +200,13 @@ export class NetworkLimitService {
       throw new Error(`Could not resolve veth for container ${containerId}`);
     }
 
-    // Idempotent: clear existing limits then apply new ones.
-    const existing = this.stateByContainer.get(containerId);
-    if (existing) await this.clearLimitForVeth(existing.veth, existing.ifb).catch(() => {});
-
-    const ifbName = uploadKbit > 0 ? ifbNameForContainer(containerId) : undefined;
-
-    try {
-      if (downloadKbit > 0) await this.applyEgressLimit(veth, downloadKbit);
-      if (uploadKbit > 0 && ifbName) await this.applyIngressLimit(veth, ifbName, uploadKbit);
-      this.stateByContainer.set(containerId, { veth, ifb: ifbName });
-    } catch (err) {
-      this.stateByContainer.delete(containerId);
-      throw err;
-    }
+    const ifbName = ifbNameForContainer(containerId);
+    // Retain cleanup information even if installation fails partway through.
+    this.stateByContainer.set(containerId, { veth, ifb: ifbName });
+    if (downloadKbit > 0) await this.applyEgressLimit(veth, downloadKbit);
+    else await this.deleteQdisc(veth, "root");
+    if (uploadKbit > 0) await this.applyIngressLimit(veth, ifbName, uploadKbit);
+    else await this.clearUploadLimit(veth, ifbName);
   }
 
   /** Remove network rate limit for the given container. */
@@ -234,9 +232,7 @@ export class NetworkLimitService {
       this.stateByContainer.delete(containerId);
       return;
     }
-    await this.clearLimitForVeth(state.veth, state.ifb).catch((e) =>
-      logger.warn(`clearLimitForVeth failed for ${containerId}:`, e)
-    );
+    await this.clearLimitForVeth(state.veth, state.ifb);
     this.stateByContainer.delete(containerId);
   }
 
@@ -383,27 +379,43 @@ export class NetworkLimitService {
     if (!qdiscs.some((qdisc) => ["ingress", "clsact"].includes(qdisc.kind))) {
       await execWithSudo("tc", ["qdisc", "add", "dev", veth, "ingress"]);
     }
-    await execWithSudo("tc", [
+    const { stdout: filterInfo } = await execWithSudo("tc", [
+      "-j",
       "filter",
-      "add",
+      "show",
       "dev",
       veth,
-      "parent",
-      "ffff:",
-      "protocol",
-      "all",
-      "u32",
-      "match",
-      "u32",
-      "0",
-      "0",
-      "action",
-      "mirred",
-      "egress",
-      "redirect",
-      "dev",
-      ifbName
+      "ingress"
     ]);
+    const filters = JSON.parse(filterInfo);
+    const hasRedirect = filters.some(
+      (filter: any) =>
+        filter.options?.actions?.some(
+          (action: any) => action.kind === "mirred" && action.to_dev === ifbName
+        )
+    );
+    if (!hasRedirect)
+      await execWithSudo("tc", [
+        "filter",
+        "add",
+        "dev",
+        veth,
+        "parent",
+        "ffff:",
+        "protocol",
+        "all",
+        "u32",
+        "match",
+        "u32",
+        "0",
+        "0",
+        "action",
+        "mirred",
+        "egress",
+        "redirect",
+        "dev",
+        ifbName
+      ]);
     await execWithSudo("tc", [
       "qdisc",
       "replace",
@@ -422,20 +434,58 @@ export class NetworkLimitService {
 
   /** Remove tc qdiscs and IFB for the given veth (and optional ifb). */
   private async clearLimitForVeth(veth: string, ifbName?: string): Promise<void> {
-    await execWithSudo("tc", ["qdisc", "del", "dev", veth, "root"]).catch((err) => {
+    await this.deleteQdisc(veth, "root");
+    if (ifbName) await this.clearUploadLimit(veth, ifbName);
+  }
+
+  private async deleteQdisc(device: string, parent: string): Promise<void> {
+    await execWithSudo("tc", ["qdisc", "del", "dev", device, parent]).catch((err) => {
       if (!this.isIgnorableDeleteError(err)) throw err;
     });
-    await execWithSudo("tc", ["qdisc", "del", "dev", veth, "ingress"]).catch((err) => {
+  }
+
+  private async clearUploadLimit(veth: string, ifbName: string): Promise<void> {
+    const { stdout } = await execWithSudo("tc", [
+      "-j",
+      "filter",
+      "show",
+      "dev",
+      veth,
+      "ingress"
+    ]).catch((err) => {
       if (!this.isIgnorableDeleteError(err)) throw err;
+      return { stdout: "[]" };
     });
-    if (ifbName) {
-      await execWithSudo("tc", ["qdisc", "del", "dev", ifbName, "root"]).catch((err) => {
-        if (!this.isIgnorableDeleteError(err)) throw err;
-      });
-      await execWithSudo("ip", ["link", "del", ifbName]).catch((err) => {
-        if (!this.isIgnorableDeleteError(err)) throw err;
-      });
+    for (const filter of JSON.parse(stdout)) {
+      if (
+        filter.kind === "u32" &&
+        filter.options?.actions?.some(
+          (action: any) => action.kind === "mirred" && action.to_dev === ifbName
+        )
+      ) {
+        await execWithSudo("tc", [
+          "filter",
+          "del",
+          "dev",
+          veth,
+          "ingress",
+          "protocol",
+          filter.protocol,
+          "pref",
+          String(filter.pref),
+          "handle",
+          filter.options.fh,
+          "u32"
+        ]).catch((err) => {
+          if (!this.isIgnorableDeleteError(err)) throw err;
+        });
+      }
     }
+    // Preserve the ingress qdisc and shared marker; only remove our IFB redirect.
+    await this.deleteQdisc(ifbName, "root");
+    await execWithSudo("ip", ["link", "del", ifbName]).catch((err) => {
+      if (!this.isIgnorableDeleteError(err)) throw err;
+    });
   }
 
   /** Returns list of required commands that are not available on PATH. */

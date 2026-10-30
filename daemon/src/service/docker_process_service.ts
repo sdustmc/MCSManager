@@ -29,7 +29,7 @@ import { AsyncTask } from "./async_task_service";
 import logger from "./log";
 import { NetworkLimitService } from "./network_limit_service";
 import { SharedBandwidthService } from "./shared_bandwidth_service";
-import { getInstanceUploadLimits } from "./instance_bandwidth";
+import { getInstanceUploadLimits, parseUploadRate } from "./instance_bandwidth";
 import { globalConfiguration } from "../entity/config";
 import InstanceSubsystem from "./system_instance";
 import storageQuotaService from "./storage_quota_service";
@@ -168,6 +168,8 @@ export interface IDockerProcessAdapterStartParam {
 
 export class SetupDockerContainer extends AsyncTask {
   private container?: Docker.Container;
+  private bandwidthUpdate: Promise<void> = Promise.resolve();
+  private bandwidthClosed = false;
 
   constructor(
     public readonly instance: Instance,
@@ -673,6 +675,7 @@ export class SetupDockerContainer extends AsyncTask {
   }
 
   public async onStop() {
+    await this.closeBandwidthUpdates();
     const containerId = this.container?.id;
 
     try {
@@ -697,6 +700,51 @@ export class SetupDockerContainer extends AsyncTask {
   public getContainer() {
     if (!this.container) throw new Error("Function getContainer(): Failed, Container is Null!");
     return this.container;
+  }
+
+  public updateBandwidth(
+    container: Docker.Container,
+    config: IGlobalInstanceDockerConfig
+  ): Promise<void> {
+    const next = { ...config };
+    const operation = this.bandwidthUpdate
+      .then(async () => {
+        const limits = getInstanceUploadLimits(next);
+        const downloadLimit = parseUploadRate(next.downloadSpeedLimit);
+        if (this.bandwidthClosed || !(await container.inspect()).State?.Running) {
+          throw new Error($t("TXT_CODE_ca030197"));
+        }
+        const shared = SharedBandwidthService.getInstance();
+        const network = NetworkLimitService.getInstance();
+        let veth: string | undefined;
+        if (next.sharedBandwidth) {
+          if (!globalConfiguration.config.sharedBandwidth?.enabled) {
+            throw new Error($t("TXT_CODE_SHARED_NOT_CONFIGURED"));
+          }
+          await shared.configure(globalConfiguration.config.sharedBandwidth);
+          veth = await network.getSharedBandwidthVeth(container.id);
+        }
+        await network.setBandwidthLimit(container.id, { uploadLimit: limits.total, downloadLimit });
+        if (veth) {
+          await shared.join(container.id, veth, {
+            dedicatedKbps: limits.dedicated,
+            sharedKbps: limits.shared
+          });
+        } else {
+          await shared.leave(container.id);
+        }
+      })
+      .catch((error) => {
+        logger.error("Failed to update container bandwidth:", container.id, error);
+        throw error;
+      });
+    this.bandwidthUpdate = operation.catch(() => {});
+    return operation;
+  }
+
+  public async closeBandwidthUpdates(): Promise<void> {
+    this.bandwidthClosed = true;
+    await this.bandwidthUpdate;
   }
 
   public async applySharedBandwidth(container: Docker.Container): Promise<void> {
@@ -791,6 +839,12 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
     }
   }
 
+  public async updateBandwidth(config: IGlobalInstanceDockerConfig): Promise<void> {
+    if (!this.container || this.stopping || this.exitEmitted)
+      throw new Error($t("TXT_CODE_ca030197"));
+    await this.containerWrapper.updateBandwidth(this.container, config);
+  }
+
   public async kill(s?: string) {
     const wasStopping = this.stopping;
     this.stopping = true;
@@ -813,10 +867,14 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
     this.exitEmitted = true;
     this.clearReconnectTimer();
     this.closeStream();
+    await this.containerWrapper.closeBandwidthUpdates();
     try {
       await this.container?.remove();
     } catch (error: any) {}
-    if (this.container) await SharedBandwidthService.getInstance().leave(this.container.id);
+    if (this.container) {
+      await SharedBandwidthService.getInstance().leave(this.container.id);
+      await NetworkLimitService.getInstance().clearBandwidthLimit(this.container.id);
+    }
   }
 
   private async attachStream() {
@@ -911,6 +969,7 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
     this.exitEmitted = true;
     this.clearReconnectTimer();
     this.closeStream();
+    await this.containerWrapper.closeBandwidthUpdates();
     try {
       await this.container?.remove();
     } catch (error) {}
@@ -918,7 +977,20 @@ export class DockerProcessAdapter extends EventEmitter implements IInstanceProce
       try {
         await SharedBandwidthService.getInstance().leave(this.container.id);
       } catch (error) {
-        logger.error("Failed to release shared bandwidth after container exit:", this.container.id, error);
+        logger.error(
+          "Failed to release shared bandwidth after container exit:",
+          this.container.id,
+          error
+        );
+      }
+      try {
+        await NetworkLimitService.getInstance().clearBandwidthLimit(this.container.id);
+      } catch (error) {
+        logger.error(
+          "Failed to release bandwidth limits after container exit:",
+          this.container.id,
+          error
+        );
       }
     }
     this.emit("exit", code);

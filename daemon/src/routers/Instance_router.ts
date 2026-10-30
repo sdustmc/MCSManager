@@ -249,7 +249,7 @@ routerApp.on("instance/update", async (ctx, data) => {
       );
       await storageQuotaService.deleteDockerHardQuotaIfManaged(instance, workspace);
     }
-    instance.parameters(config);
+    await instance.updateConfig(config);
     protocol.msg(ctx, "instance/update", { instanceUuid });
   } catch (err: any) {
     protocol.error(ctx, "instance/update", { instanceUuid: instanceUuid, err: err.message });

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import path from "node:path";
 import {
   world,
@@ -621,6 +621,92 @@ describe("docker instance + image integration (Linux + reachable dockerd only)",
       });
     },
     120000
+  );
+
+  dockerIt(
+    "applies live upload and download limits through the panel without restarting the Docker instance",
+    async () => {
+      await ensureUsersOnce();
+      const name = containerName("live-bandwidth");
+      const uuid = await createDockerInstance(name);
+      const json = (command: string, args: string[]) =>
+        JSON.parse(execFileSync(command, args, { encoding: "utf8" }));
+      const inspect = () => json("docker", ["inspect", name])[0];
+      const save = (docker: Record<string, unknown>) =>
+        requestPanel({
+          method: "PUT",
+          path: "/instance",
+          key: world.key,
+          query: { daemonId: di(), uuid },
+          body: { docker }
+        });
+      try {
+        await requestPanel({
+          method: "GET",
+          path: "/protected_instance/open",
+          ...u1(),
+          query: { daemonId: di(), uuid }
+        });
+        await waitFor(async () => (await getStatus(uuid)) === RUNNING, {
+          timeout: 45000,
+          interval: 500,
+          msg: "live bandwidth instance starts"
+        });
+        const before = inspect();
+        const ifindex = Number(
+          execFileSync("docker", ["exec", before.Id, "cat", "/sys/class/net/eth0/iflink"], {
+            encoding: "utf8"
+          }).trim()
+        );
+        const veth = json("ip", ["-j", "link", "show"]).find(
+          (link: any) => link.ifindex === ifindex
+        ).ifname;
+        const ifb = `ifb_${before.Id.slice(0, 11)}`;
+        const rate = (device: string) =>
+          json("tc", ["-j", "qdisc", "show", "dev", device]).find(
+            (qdisc: any) => qdisc.kind === "tbf"
+          )?.options?.rate;
+        for (const [upload, download] of [
+          [1250, 625],
+          [2500, 1250]
+        ]) {
+          const result = await save({ uploadSpeedLimit: upload, downloadSpeedLimit: download });
+          expect(result.httpStatus, JSON.stringify(result.raw)).toBe(200);
+          expect(rate(ifb)).toBe(upload * 1000);
+          expect(rate(veth)).toBe(download * 1000);
+        }
+        const failed = await save({ sharedBandwidth: true });
+        expect(failed.httpStatus).not.toBe(200);
+        expect(rate(ifb)).toBe(2500000);
+        const config = await requestPanel({
+          method: "GET",
+          path: "/instance",
+          ...u1(),
+          query: { daemonId: di(), uuid }
+        });
+        expect(config.data.config.docker.sharedBandwidth).toBe(false);
+        expect((await save({ uploadSpeedLimit: 0, downloadSpeedLimit: 0 })).httpStatus).toBe(200);
+        expect(rate(veth)).toBeUndefined();
+        expect(json("ip", ["-j", "link", "show"]).some((link: any) => link.ifname === ifb)).toBe(
+          false
+        );
+        const after = inspect();
+        expect(after.Id).toBe(before.Id);
+        expect(after.State.Pid).toBe(before.State.Pid);
+        expect(after.State.StartedAt).toBe(before.State.StartedAt);
+        const stream = await openStream(uuid);
+        try {
+          expect(await stream.ready).toBe(true);
+          stream.send("sum 12 30");
+          expect(await waitForOutput(stream, (text) => text.includes("SUM:42"), 10000)).toBe(true);
+        } finally {
+          stream.disconnect();
+        }
+      } finally {
+        await deleteDockerInstance(uuid);
+      }
+    },
+    90000
   );
 
   dockerIt(

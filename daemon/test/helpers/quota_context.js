@@ -79,6 +79,9 @@ function createInstance(id = "instance1", docker = {}) {
       };
       context.Storage.store("InstanceConfig", this.instanceUuid, this.config);
     },
+    async updateConfig(patch) {
+      this.parameters(patch);
+    },
     async restoreConfig(config) {
       this.config = structuredClone(config);
       context.Storage.store("InstanceConfig", this.instanceUuid, this.config);

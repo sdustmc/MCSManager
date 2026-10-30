@@ -258,7 +258,7 @@ export class StorageQuotaOperationService {
         if (next.docker.enableHardStorageQuota)
           await this.quota.checkStoragePool(shadow, instances);
         changedConfig = true;
-        instance.parameters({ ...patch, cwd: next.cwd, docker: next.docker });
+        await instance.updateConfig({ ...patch, cwd: next.cwd, docker: next.docker });
         if (
           (previous.docker.storageQuotaProjectId || previous.docker.enableHardStorageQuota) &&
           (previous.cwd !== next.cwd ||
