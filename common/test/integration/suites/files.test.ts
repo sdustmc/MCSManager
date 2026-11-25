@@ -230,14 +230,11 @@ describe("files: CRUD + zip + upload/download + traversal (real daemon + panel)"
       "orig.zip must appear after compress"
     ).toContain("orig.zip");
 
-    // Decompress orig.zip back to "."; the decompress helper sends type=0
-    // (unzip). Daemon uses the platform file_zip binary (file_zip_darwin_arm64
-    // on this host — boot copies daemon/lib into the workDir).
-    const dz = await decompress(di(), iu(), u1().cookie, u1().token, "orig.zip", ".");
+    // The panel's current-directory action sends a trailing slash.
+    const dz = await decompress(di(), iu(), u1().cookie, u1().token, "orig.zip", "/sub/");
     expect(dz.httpStatus, `decompress: ${JSON.stringify(dz.raw).slice(0, 200)}`).toBe(200);
 
-    // orig.txt must still contain "ABC" — zip/unzip preserves content.
-    const rd = await readFileText(di(), iu(), u1().cookie, u1().token, "orig.txt");
+    const rd = await readFileText(di(), iu(), u1().cookie, u1().token, "sub/orig.txt");
     expect(String(rd.data), "orig.txt must be byte-identical after zip+unzip round-trip").toBe(
       "ABC"
     );

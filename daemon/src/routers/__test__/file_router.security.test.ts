@@ -99,6 +99,7 @@ vi.mock("../../service/system_instance", () => {
 import "../auth_router";
 import "../file_router";
 import downloadManager from "../../service/download_manager";
+import InstanceSubsystem from "../../service/system_instance";
 import uploadManager from "../../service/upload_manager";
 import { checkSafeUrl } from "../../utils/url";
 import { compress, decompress, listArchiveEntries } from "../../common/compress";
@@ -183,6 +184,35 @@ describe("file_router security: per-instance workspace isolation (real FileManag
     expect(pb.status).toBe(200);
     expect(fs.existsSync(path.join(sandbox.dirA, "touched.txt"))).toBe(true);
     expect(fs.existsSync(path.join(sandbox.dirB, "touched.txt"))).toBe(true);
+  });
+
+  const canChangeOwner = process.platform === "linux" && process.getuid?.() === 0;
+  (canChangeOwner ? it : it.skip)("new directories and files use the Docker runAs ownership", async () => {
+    const { config } = InstanceSubsystem.getInstance("a")!;
+    const { processType, runAs } = config;
+    config.processType = "docker";
+    config.runAs = "1001:1001";
+
+    const existingFile = path.join(sandbox.dirA, "ok.txt");
+    const existingOwner = fs.statSync(existingFile);
+    const workspaceOwner = fs.statSync(sandbox.dirA);
+    try {
+      const mk = await call("file/mkdir", { instanceUuid: "a", target: "run-as/child/" });
+      const touch = await call("file/touch", { instanceUuid: "a", target: "run-as/files/rules.txt" });
+      const touchExisting = await call("file/touch", { instanceUuid: "a", target: "ok.txt" });
+      expect(mk.status).toBe(200);
+      expect(touch.status).toBe(200);
+      expect(touchExisting.status).toBe(200);
+      for (const name of ["run-as", "run-as/child", "run-as/files", "run-as/files/rules.txt"]) {
+        expect(fs.statSync(path.join(sandbox.dirA, name))).toMatchObject({ uid: 1001, gid: 1001 });
+      }
+      expect(fs.statSync(existingFile)).toMatchObject({ uid: existingOwner.uid, gid: existingOwner.gid });
+      expect(fs.readFileSync(existingFile, "utf-8")).toBe("A-OK");
+      expect(fs.statSync(sandbox.dirA)).toMatchObject({ uid: workspaceOwner.uid, gid: workspaceOwner.gid });
+    } finally {
+      config.processType = processType;
+      config.runAs = runAs;
+    }
   });
 
   it("file/edit of the same relative name only modifies the requesting instance's file", async () => {

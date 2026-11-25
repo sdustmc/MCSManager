@@ -1,3 +1,4 @@
+import { open } from "fs/promises";
 import fs from "fs-extra";
 import iconv from "iconv-lite";
 import { ProcessWrapper } from "mcsmanager-common";
@@ -219,13 +220,28 @@ export default class FileManager {
     return await fs.writeFile(absPath, buf);
   }
 
-  async newFile(fileName: string) {
+  async newFile(fileName: string, ownership?: FileOwnership) {
     // if (!FileManager.checkFileName(fileName)) throw new Error(ERROR_MSG_01);
     if (!this.checkPath(fileName)) throw new Error(ERROR_MSG_01);
     const target = this.toAbsolutePath(fileName);
     const parentDir = path.resolve(path.dirname(target));
-    if (parentDir !== path.parse(parentDir).root) await fs.mkdir(parentDir, { recursive: true });
-    return await fs.createFile(target);
+    if (parentDir !== path.parse(parentDir).root) {
+      await this.mkdirAbsolute(parentDir, ownership);
+    }
+    if (!ownership) return await fs.createFile(target);
+
+    // An existing file may be shared or linked. Only chown a file we created.
+    const file = await open(target, "wx").catch(async (error: NodeJS.ErrnoException) => {
+      if (error.code === "EEXIST" && (await fs.stat(target)).isFile()) return;
+      throw error;
+    });
+    if (!file) return;
+    try {
+      if (this.isOutsideWorkspace(target)) throw new Error(ERROR_MSG_01);
+      await file.chown(ownership.uid, ownership.gid);
+    } finally {
+      await file.close();
+    }
   }
 
   async copy(target1: string, target2: string) {
@@ -235,10 +251,35 @@ export default class FileManager {
     return await fs.copy(targetPath, target2);
   }
 
-  mkdir(target: string) {
+  async mkdir(target: string, ownership?: FileOwnership) {
     if (!this.checkPath(target)) throw new Error(ERROR_MSG_01);
-    const targetPath = this.toAbsolutePath(target);
-    return fs.mkdirSync(targetPath, { recursive: true });
+    const targetPath = path.resolve(this.toAbsolutePath(target));
+    await this.mkdirAbsolute(targetPath, ownership);
+  }
+
+  private async mkdirAbsolute(targetPath: string, ownership?: FileOwnership): Promise<void> {
+    if (!ownership) {
+      await fs.mkdir(targetPath, { recursive: true });
+      return;
+    }
+
+    const parentDir = path.dirname(targetPath);
+    if (targetPath !== path.resolve(this.topPath)) {
+      try {
+        await fs.stat(parentDir);
+      } catch (error: any) {
+        if (error.code !== "ENOENT") throw error;
+        await this.mkdirAbsolute(parentDir, ownership);
+      }
+    }
+
+    try {
+      await fs.mkdir(targetPath);
+    } catch (error: any) {
+      if (error.code === "EEXIST" && (await fs.stat(targetPath)).isDirectory()) return;
+      throw error;
+    }
+    await syncPathOwnershipWithinRoot(this.topPath, targetPath, ownership);
   }
 
   async delete(target: string, options: { ignoreMissing?: boolean } = {}): Promise<boolean> {
@@ -279,14 +320,15 @@ export default class FileManager {
     if (!this.check(sourceZip) || !this.checkPath(destDir)) throw new Error(ERROR_MSG_01);
     this.zipFileCheck(this.toAbsolutePath(sourceZip));
     const absSource = this.toAbsolutePath(sourceZip);
-    const absDest = this.toAbsolutePath(destDir);
+    const absDest = path.resolve(this.toAbsolutePath(destDir));
 
-    const entryPaths = await this.listArchiveEntryPaths(absSource, absDest);
+    const entryPaths = await this.listArchiveEntryPaths(sourceZip, destDir);
     const ownership =
       typeof beforeExtractOrOwnership === "function" ? undefined : beforeExtractOrOwnership;
     const ownershipTargets = ownership ? await selectArchiveOwnershipTargets(entryPaths) : [];
     if (typeof beforeExtractOrOwnership === "function") await beforeExtractOrOwnership(entryPaths);
 
+    if (ownership) await this.mkdirAbsolute(absDest, ownership);
     const result = await decompress(absSource, absDest, code);
     if (ownership) {
       for (const target of ownershipTargets) {
@@ -299,7 +341,7 @@ export default class FileManager {
   async listArchiveEntryPaths(sourceZip: string, destDir: string): Promise<string[]> {
     if (!this.check(sourceZip) || !this.checkPath(destDir)) throw new Error(ERROR_MSG_01);
     const absSource = this.toAbsolutePath(sourceZip);
-    const absDest = this.toAbsolutePath(destDir);
+    const absDest = path.resolve(this.toAbsolutePath(destDir));
     this.zipFileCheck(absSource);
     const zip = new StreamZip.async({ file: absSource });
 

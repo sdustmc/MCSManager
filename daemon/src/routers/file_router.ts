@@ -5,7 +5,7 @@ import { globalConfiguration, globalEnv } from "../entity/config";
 import Instance, { GLOBAL_INSTANCE_UUID_KEY } from "../entity/instance/instance";
 import { $t } from "../i18n";
 import downloadManager from "../service/download_manager";
-import { getFileManager, getWindowsDisks } from "../service/file_router_service";
+import { getFileManager, getInstanceFileManager, getWindowsDisks } from "../service/file_router_service";
 import logger from "../service/log";
 import * as protocol from "../service/protocol";
 import { routerApp } from "../service/router_app";
@@ -164,8 +164,8 @@ routerApp.on("file/status", async (ctx, data) => {
 routerApp.on("file/touch", async (ctx, data) => {
   try {
     const target = data.target;
-    const fileManager = getFileManager(data.instanceUuid);
-    await fileManager.newFile(target);
+    const { fileManager, instance } = getInstanceFileManager(data.instanceUuid);
+    await fileManager.newFile(target, await resolveInstanceFileOwnership(instance));
     protocol.response(ctx, true);
   } catch (error: any) {
     protocol.responseError(ctx, error);
@@ -176,8 +176,8 @@ routerApp.on("file/touch", async (ctx, data) => {
 routerApp.on("file/mkdir", async (ctx, data) => {
   try {
     const target = data.target;
-    const fileManager = getFileManager(data.instanceUuid);
-    await fileManager.mkdir(target);
+    const { fileManager, instance } = getInstanceFileManager(data.instanceUuid);
+    await fileManager.mkdir(target, await resolveInstanceFileOwnership(instance));
     protocol.response(ctx, true);
   } catch (error: any) {
     protocol.responseError(ctx, error);
@@ -324,9 +324,7 @@ routerApp.on("file/compress", async (ctx, data) => {
     const targets = data.targets;
     const type = data.type;
     const code = data.code;
-    const fileManager = getFileManager(data.instanceUuid);
-    const instance = InstanceSubsystem.getInstance(data.instanceUuid);
-    if (!instance) throw new Error($t("TXT_CODE_3bfb9e04"));
+    const { fileManager, instance } = getInstanceFileManager(data.instanceUuid);
     if (instance.info.fileLock >= maxFileTask) {
       throw new Error(
         $t("TXT_CODE_file_router.unzipLimit", {
