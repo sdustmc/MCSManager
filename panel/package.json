@@ -1,7 +1,7 @@
 {
   "name": "mcsmanager-panel",
-  "version": "10.21.2-sdustmc-edit-0.1.3",
-  "daemonVersion": "4.19.2-sdustmc-edit-0.1.3",
+  "version": "10.21.2-sdustmc-edit-0.1.4",
+  "daemonVersion": "4.19.2-sdustmc-edit-0.1.4",
   "engines": {
     "node": "^20.19.0 || ^22.12.0 || >=23.0.0"
   },
